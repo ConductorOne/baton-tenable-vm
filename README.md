@@ -38,6 +38,8 @@ baton resources
 
 `baton-tenable-vm` will pull down information about the following resources:
 - Users
+- Groups
+- Roles
 
 # Contributing, Support and Issues
 
@@ -65,6 +67,8 @@ Available Commands:
 Flags:
       --client-id string             The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
       --client-secret string         The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
+      --access-key string            required: Access key part of the api key ($BATON_ACCESS_KEY)
+      --secret-key string            required: Secret key part of the api key ($BATON_SECRET_KEY)
   -f, --file string                  The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
   -h, --help                         help for baton-tenable-vm
       --log-format string            The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
