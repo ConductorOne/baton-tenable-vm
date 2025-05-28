@@ -6,16 +6,20 @@ import (
 )
 
 var (
+	SecretKeyField = field.StringField(
+		"secret-key",
+		field.WithDescription("The Tenable API key connect to the Tenable API"),
+		field.WithRequired(true),
+	)
+	AccessKeyField = field.StringField(
+		"access-key",
+		field.WithDescription("The Tenable API key connect to the Tenable API"),
+		field.WithRequired(true),
+	)
 	// ConfigurationFields defines the external configuration required for the
 	// connector to run. Note: these fields can be marked as optional or
 	// required.
-	ConfigurationFields = []field.SchemaField{}
-
-	// FieldRelationships defines relationships between the fields listed in
-	// ConfigurationFields that can be automatically validated. For example, a
-	// username and password can be required together, or an access token can be
-	// marked as mutually exclusive from the username password pair.
-	FieldRelationships = []field.SchemaFieldRelationship{}
+	ConfigurationFields = []field.SchemaField{SecretKeyField, AccessKeyField}
 )
 
 // ValidateConfig is run after the configuration is loaded, and should return an
