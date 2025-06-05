@@ -34,6 +34,15 @@ type Role struct {
 	Name string    `json:"name,omitempty"`
 }
 
+type RoleDetails struct {
+	UUID        uuid.UUID `json:"uuid,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	Permissions []string  `json:"role_permission_strings,omitempty"`
+	Description string    `json:"description,omitempty"`
+	Type        string    `json:"type,omitempty"`
+	Status      string    `json:"status,omitempty"`
+}
+
 type UserRole struct {
 	ContainerUUID string   `json:"container_uuid,omitempty"`
 	UserUUID      string   `json:"user_uuid,omitempty"`

@@ -20,6 +20,7 @@ const (
 	ListGroupMembersPath    = "/groups/%s/users"
 	UserGroupMembershipPath = "/groups/%s/users/%s"
 	UserRolePath            = "/access-control/v1/users/%s/roles" // uses user uuid, not id
+	RolesPath               = "/access-control/v1/roles"
 	PermissionsPath         = "/api/v3/access-control/permissions"
 )
 
@@ -83,6 +84,25 @@ func (c *TenableVMClient) GetUserDetails(ctx context.Context, userId string) (*U
 	}
 
 	return &user, nil
+}
+
+func (c *TenableVMClient) GetRoles(ctx context.Context) ([]*RoleDetails, annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
+	var res []*RoleDetails
+
+	queryUrl, err := url.JoinPath(BaseURL, RolesPath)
+	if err != nil {
+		l.Error(fmt.Sprintf("Error creating url: %s", err))
+		return nil, nil, err
+	}
+
+	annos, err := c.getResourcesFromAPI(ctx, queryUrl, &res)
+	if err != nil {
+		l.Error(fmt.Sprintf("Error getting resources: %s", err))
+		return nil, annos, err
+	}
+
+	return res, annos, nil
 }
 
 func (c *TenableVMClient) GetUserRoles(ctx context.Context, userUUID string) (*UserRole, error) {
