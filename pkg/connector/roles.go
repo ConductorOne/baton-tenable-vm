@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ const (
 
 type roleBuilder struct {
 	client        *client.TenableVMClient
+	connector     *Connector
 	roleCache     map[string]RoleMapRegistry
 	cacheMutex    sync.Mutex
 	cacheLastLoad time.Time
@@ -45,14 +47,12 @@ type RoleMapRegistry struct {
 func (rb *roleBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	var resources []*v2.Resource
-	annos, err := rb.loadRoleMapCache(ctx)
-	if err != nil {
-		l.Debug("Error while listing roles, fail to load role map from user list", zap.Any("error", err))
-		return nil, "", annos, err
-	}
 
-	for _, roleRegistry := range rb.roleCache {
-		role := roleRegistry.Role
+	roles, annotations, err := rb.client.GetRoles(ctx)
+	if err != nil {
+		return nil, "", annotations, err
+	}
+	for _, role := range roles {
 		newRoleResource, err := parseIntoRoleResource(role, parentResourceID)
 		if err != nil {
 			l.Debug("Failed to parse into role resource", zap.Any("role", role))
@@ -90,11 +90,8 @@ func (rb *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 	roleUUID := resource.Id.Resource
 	roleRegistry, exists := rb.roleCache[roleUUID]
 	if !exists {
-		l.Debug("Role resource not found in cache",
-			zap.String("role uuid", roleUUID),
-			zap.Any("cache", rb.roleCache),
-		)
-		return nil, "", nil, fmt.Errorf("role resource not found in cache, role uuid: %s", roleUUID)
+		// Role is not assigned to any user, continue.
+		return nil, "", nil, nil
 	}
 
 	for _, user := range roleRegistry.Users {
@@ -119,23 +116,24 @@ func (o *roleBuilder) loadRoleMapCache(ctx context.Context) (annotations.Annotat
 		return nil, nil
 	}
 
-	users, annos, err := o.client.GetUsers(ctx)
+	annos, err := o.connector.cacheUsers(ctx)
 	if err != nil {
-		return annos, err
+		return annos, fmt.Errorf("failed to cache users: %w", err)
 	}
 
+	cachedUsers := o.connector.cachedUsers
 	roleMap := make(map[string]RoleMapRegistry)
-	for _, user := range users {
+	for _, user := range cachedUsers {
 		for _, role := range user.RbacRoles {
 			uuidKey := role.UUID.String()
 			if _, exists := roleMap[uuidKey]; !exists {
 				roleMap[uuidKey] = RoleMapRegistry{
 					Role:  &role,
-					Users: []*client.User{&user},
+					Users: []*client.User{user},
 				}
 			} else {
 				existing := roleMap[uuidKey]
-				existing.Users = append(existing.Users, &user)
+				existing.Users = append(existing.Users, user)
 				roleMap[uuidKey] = existing
 			}
 		}
@@ -146,11 +144,16 @@ func (o *roleBuilder) loadRoleMapCache(ctx context.Context) (annotations.Annotat
 	return nil, nil
 }
 
-func parseIntoRoleResource(role *client.Role, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func parseIntoRoleResource(role *client.RoleDetails, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	stringUUID := role.UUID.String()
+	rolePermissions := strings.Join(role.Permissions, ",")
 	profile := map[string]interface{}{
-		"uuid": stringUUID,
-		"name": role.Name,
+		"uuid":        stringUUID,
+		"name":        role.Name,
+		"description": role.Description,
+		"type":        role.Type,
+		"status":      role.Status,
+		"permissions": rolePermissions,
 	}
 	roleTraits := []rs.RoleTraitOption{
 		rs.WithRoleProfile(profile),
@@ -250,8 +253,9 @@ func (rb *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (
 	return nil, nil
 }
 
-func newRoleBuilder(c *client.TenableVMClient) *roleBuilder {
+func newRoleBuilder(c *client.TenableVMClient, conn *Connector) *roleBuilder {
 	return &roleBuilder{
-		client: c,
+		client:    c,
+		connector: conn,
 	}
 }
