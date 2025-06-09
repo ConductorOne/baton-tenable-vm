@@ -5,8 +5,9 @@ go 1.23.4
 toolchain go1.23.9
 
 require (
-	github.com/conductorone/baton-sdk v0.3.5
+	github.com/conductorone/baton-sdk v0.3.11
 	github.com/ennyjfrick/ruleguard-logfatal v0.0.2
+	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/quasilyte/go-ruleguard/dsl v0.3.22
 	github.com/spf13/viper v1.20.1
@@ -57,7 +58,6 @@ require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jellydator/ttlcache/v3 v3.3.0 // indirect
