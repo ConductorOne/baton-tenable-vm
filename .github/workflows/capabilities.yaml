@@ -24,7 +24,7 @@ jobs:
         run: go build -o connector ./cmd/baton-tenable-vm
 
       - name: Run and save output
-        run: ./connector capabilities > baton_capabilities.json
+        run: ./connector --secret-key my-secret-key --access-key my-access-key capabilities > baton_capabilities.json
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
