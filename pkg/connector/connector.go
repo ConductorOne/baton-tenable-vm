@@ -125,6 +125,7 @@ func New(ctx context.Context, accessKey string, secretKey string, powershellActi
 		return nil, err
 	}
 	return &Connector{
-		client: client,
+		client:            client,
+		PowerShellActions: powershellActions,
 	}, nil
 }
