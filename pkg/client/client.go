@@ -167,6 +167,49 @@ func (c *TenableVMClient) CreateUser(ctx context.Context, newUser NewUser) (*Use
 	return &user, nil
 }
 
+// https://developer.tenable.com/reference/users-delete
+func (c *TenableVMClient) DeleteUser(ctx context.Context, userId string) error {
+	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId))
+	if err != nil {
+		return fmt.Errorf("error creating url: %w", err)
+	}
+	_, _, err = c.doRequest(ctx, http.MethodDelete, queryUrl, nil, nil)
+	if err != nil {
+		return fmt.Errorf("error deleting user: %w", err)
+	}
+	return nil
+}
+
+// https://developer.tenable.com/reference/users-enabled
+func (c *TenableVMClient) DisableUser(ctx context.Context, userId string) (*User, error) {
+	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId), "enabled")
+	if err != nil {
+		return nil, fmt.Errorf("error creating url: %w", err)
+	}
+	body := UserEnabledReqBody{Enabled: false}
+	var updatedUser User
+	_, _, err = c.doRequest(ctx, http.MethodPut, queryUrl, &updatedUser, body)
+	if err != nil {
+		return nil, fmt.Errorf("error disabling user: %w", err)
+	}
+	return &updatedUser, nil
+}
+
+// https://developer.tenable.com/reference/users-enabled
+func (c *TenableVMClient) EnableUser(ctx context.Context, userId string) (*User, error) {
+	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId), "enabled")
+	if err != nil {
+		return nil, fmt.Errorf("error creating url: %w", err)
+	}
+	body := UserEnabledReqBody{Enabled: true}
+	var updatedUser User
+	_, _, err = c.doRequest(ctx, http.MethodPut, queryUrl, &updatedUser, body)
+	if err != nil {
+		return nil, fmt.Errorf("error enabling user: %w", err)
+	}
+	return &updatedUser, nil
+}
+
 func (c *TenableVMClient) GetGroups(ctx context.Context) ([]Group, annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	var res GroupsResponse
@@ -365,7 +408,6 @@ func (c *TenableVMClient) doRequest(
 	doOptions = append(doOptions, uhttp.WithRatelimitData(&ratelimitData))
 	switch method {
 	case http.MethodGet, http.MethodPut, http.MethodPost:
-
 		if res != nil {
 			doOptions = append(doOptions, uhttp.WithResponse(&res))
 		}

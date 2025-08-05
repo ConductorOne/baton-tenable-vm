@@ -56,6 +56,10 @@ type UserUpdateReqBody struct {
 	Enabled     bool   `json:"enabled,omitempty"`
 }
 
+type UserEnabledReqBody struct {
+	Enabled bool `json:"enabled"`
+}
+
 type UserRoleReqBody struct {
 	RolesUUIDs []string `json:"role_uuids,omitempty"`
 }

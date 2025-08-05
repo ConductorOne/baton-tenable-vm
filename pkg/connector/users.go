@@ -9,6 +9,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -57,17 +59,32 @@ func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken 
 }
 
 func parseIntoUserResource(_ context.Context, user *client.User, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
-	var userStatus = v2.UserTrait_Status_STATUS_ENABLED
-
-	firstName, lastName := getFirstNameAndLastName(user.Name)
+	var (
+		userStatus  = v2.UserTrait_Status_STATUS_ENABLED
+		firstName   string
+		lastName    string
+		displayName string
+	)
 
 	profile := map[string]interface{}{
-		"user_id":    user.ID,
-		"uuid":       user.UUID,
-		"username":   user.Username,
-		"first_name": firstName,
-		"last_name":  lastName,
-		"email":      user.Email,
+		"user_id":  user.ID,
+		"uuid":     user.UUID,
+		"username": user.Username,
+		"email":    user.Email,
+	}
+
+	if user.Name != "" {
+		firstName, lastName = getFirstNameAndLastName(user.Name)
+		displayName = user.Name
+	} else {
+		displayName = user.Username
+	}
+
+	if firstName != "" {
+		profile["first_name"] = firstName
+	}
+	if lastName != "" {
+		profile["last_name"] = lastName
 	}
 
 	if !user.Enabled {
@@ -87,7 +104,7 @@ func parseIntoUserResource(_ context.Context, user *client.User, parentResourceI
 	}
 
 	ret, err := resource.NewUserResource(
-		user.Name,
+		displayName,
 		userResourceType,
 		user.ID,
 		userTraits,
@@ -179,6 +196,20 @@ func (o *userBuilder) CreateAccount(
 	}
 
 	return caResponse, []*v2.PlaintextData{passResult}, nil, nil
+}
+
+// https://developer.tenable.com/reference/users-enabled
+func (o *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
+	userID := principal.Resource
+
+	err := o.client.DeleteUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("baton-tenable-vm: failed to delete user: %w", err)
+	}
+
+	l.Info("baton-tenable-vm: user deleted successfully", zap.String("user_id", userID))
+	return nil, nil
 }
 
 func newUserBuilder(c *client.TenableVMClient, con *Connector) *userBuilder {
