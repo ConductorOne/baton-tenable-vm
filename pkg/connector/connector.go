@@ -22,24 +22,6 @@ type Connector struct {
 	usersMtx       sync.Mutex
 }
 
-// PowerShellAction defines a configured PowerShell script.
-type PowerShellAction struct {
-	Path string
-	Args map[string]PowerShellArgument
-}
-
-// PowerShellArgument defines metadata for a PowerShell script argument.
-// The options are taken from the config.Field struct.
-type PowerShellArgument struct {
-	Type        string `mapstructure:"type"`
-	DisplayName string `mapstructure:"display_name"`
-	Description string `mapstructure:"description"`
-	Placeholder string `mapstructure:"placeholder"`
-	IsRequired  bool   `mapstructure:"is_required"`
-	IsOps       bool   `mapstructure:"is_ops"`
-	IsSecret    bool   `mapstructure:"is_secret"`
-}
-
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
 	return []connectorbuilder.ResourceSyncer{

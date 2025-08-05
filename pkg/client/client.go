@@ -195,6 +195,21 @@ func (c *TenableVMClient) DisableUser(ctx context.Context, userId string) (*User
 	return &updatedUser, nil
 }
 
+// https://developer.tenable.com/reference/users-enabled
+func (c *TenableVMClient) EnableUser(ctx context.Context, userId string) (*User, error) {
+	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId), "enabled")
+	if err != nil {
+		return nil, fmt.Errorf("error creating url: %w", err)
+	}
+	body := UserEnabledReqBody{Enabled: true}
+	var updatedUser User
+	_, _, err = c.doRequest(ctx, http.MethodPut, queryUrl, &updatedUser, body)
+	if err != nil {
+		return nil, fmt.Errorf("error disabling user: %w", err)
+	}
+	return &updatedUser, nil
+}
+
 func (c *TenableVMClient) GetGroups(ctx context.Context) ([]Group, annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	var res GroupsResponse

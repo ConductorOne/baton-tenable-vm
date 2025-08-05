@@ -66,6 +66,13 @@ func parseIntoUserResource(_ context.Context, user *client.User, parentResourceI
 		displayName string
 	)
 
+	profile := map[string]interface{}{
+		"user_id":  user.ID,
+		"uuid":     user.UUID,
+		"username": user.Username,
+		"email":    user.Email,
+	}
+
 	if user.Name != "" {
 		firstName, lastName = getFirstNameAndLastName(user.Name)
 		displayName = user.Name
@@ -73,13 +80,11 @@ func parseIntoUserResource(_ context.Context, user *client.User, parentResourceI
 		displayName = user.Username
 	}
 
-	profile := map[string]interface{}{
-		"user_id":    user.ID,
-		"uuid":       user.UUID,
-		"username":   user.Username,
-		"first_name": firstName,
-		"last_name":  lastName,
-		"email":      user.Email,
+	if firstName != "" {
+		profile["first_name"] = firstName
+	}
+	if lastName != "" {
+		profile["last_name"] = lastName
 	}
 
 	if !user.Enabled {
@@ -204,7 +209,7 @@ func (o *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (ann
 		return nil, fmt.Errorf("baton-tenable-vm: failed to delete user: %w", err)
 	}
 
-	l.Info("baton-tenable-vm: user disabled successfully", zap.String("user_id", userID))
+	l.Info("baton-tenable-vm: user deleted successfully", zap.String("user_id", userID))
 	return nil, nil
 }
 
