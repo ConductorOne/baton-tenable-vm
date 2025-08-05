@@ -16,11 +16,10 @@ import (
 const TTL = 5 // in minutes
 
 type Connector struct {
-	PowerShellActions map[string]PowerShellAction
-	client            *client.TenableVMClient
-	cachedUsers       map[string]*client.User
-	usersTimestamp    time.Time
-	usersMtx          sync.Mutex
+	client         *client.TenableVMClient
+	cachedUsers    map[string]*client.User
+	usersTimestamp time.Time
+	usersMtx       sync.Mutex
 }
 
 // PowerShellAction defines a configured PowerShell script.
@@ -119,13 +118,12 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, accessKey string, secretKey string, powershellActions map[string]PowerShellAction) (*Connector, error) {
+func New(ctx context.Context, accessKey string, secretKey string) (*Connector, error) {
 	client, err := client.NewClient(ctx, accessKey, secretKey)
 	if err != nil {
 		return nil, err
 	}
 	return &Connector{
-		client:            client,
-		PowerShellActions: powershellActions,
+		client: client,
 	}, nil
 }
