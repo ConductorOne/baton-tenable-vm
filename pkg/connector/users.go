@@ -198,7 +198,6 @@ func (o *userBuilder) CreateAccount(
 	return caResponse, []*v2.PlaintextData{passResult}, nil, nil
 }
 
-// Per costumer preference we disable user instead of deleting it.
 // https://developer.tenable.com/reference/users-enabled
 func (o *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)

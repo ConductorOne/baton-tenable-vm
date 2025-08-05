@@ -205,7 +205,7 @@ func (c *TenableVMClient) EnableUser(ctx context.Context, userId string) (*User,
 	var updatedUser User
 	_, _, err = c.doRequest(ctx, http.MethodPut, queryUrl, &updatedUser, body)
 	if err != nil {
-		return nil, fmt.Errorf("error disabling user: %w", err)
+		return nil, fmt.Errorf("error enabling user: %w", err)
 	}
 	return &updatedUser, nil
 }

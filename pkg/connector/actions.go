@@ -106,7 +106,7 @@ func (c *Connector) disableAccountActionHandler(ctx context.Context, args *struc
 	}
 
 	if user != nil && user.Enabled {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: disable user returned success but user %s is still disabled", uid)
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: disable user returned success but user %s is still enabled", uid)
 	}
 
 	l.Info("baton-tenable-vm: user disabled successfully", zap.String("user_id", uid))
@@ -146,7 +146,7 @@ func (c *Connector) enableAccountActionHandler(ctx context.Context, args *struct
 	}
 
 	if user != nil && !user.Enabled {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: failed to enable user")
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: enable user returned success but user %s is still disabled", uid)
 	}
 
 	l.Info("baton-tenable-vm: user enabled successfully", zap.String("user_id", uid))
