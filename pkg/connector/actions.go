@@ -126,6 +126,7 @@ func (c *Connector) disableAccountActionHandler(ctx context.Context, args *struc
 func (c *Connector) enableAccountActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	if args == nil || args.Fields == nil {
+		l.Error("baton-tenable-vm: enable action error invalid arguments")
 		return nil, nil, status.Errorf(codes.InvalidArgument, "invalid arguments")
 	}
 
