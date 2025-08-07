@@ -1,5 +1,5 @@
 {
-  "source": ["./dist/macos-arm64_darwin_arm64/baton-tenable-vm"],
+  "source": ["./dist/macos-arm64_darwin_arm64_v8.0/baton-tenable-vm"],
   "bundle_id": "com.conductorone.baton-tenable-vm",
   "apple_id": {
     "username" : "justin.gallardo@conductorone.com"
