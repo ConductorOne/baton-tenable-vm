@@ -11,6 +11,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -198,17 +200,24 @@ func (o *userBuilder) CreateAccount(
 	return caResponse, []*v2.PlaintextData{passResult}, nil, nil
 }
 
+// This will actually just disable the user instead of deleting them.
+// Tenable needs to transfer a user's ownership of resources before deleting them to avoid orphaned resources.
+// For this reason its common practice to disable the user instead of deleting them.
 // https://developer.tenable.com/reference/users-enabled
 func (o *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	userID := principal.Resource
 
-	err := o.client.DeleteUser(ctx, userID)
+	updatedUser, err := o.client.DisableUser(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("baton-tenable-vm: failed to delete user: %w", err)
+		return nil, fmt.Errorf("baton-tenable-vm: failed to disable user: %w", err)
+	}
+	if updatedUser != nil && updatedUser.Enabled {
+		l.Error("baton-tenable-vm: disable action error, user is still enabled", zap.String("user_id", userID))
+		return nil, status.Errorf(codes.Unknown, "baton-tenable-vm: disable user returned success but user %s is still enabled", userID)
 	}
 
-	l.Info("baton-tenable-vm: user deleted successfully", zap.String("user_id", userID))
+	l.Info("baton-tenable-vm: user disabled successfully", zap.String("user_id", userID))
 	return nil, nil
 }
 
