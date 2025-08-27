@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"sync"
 	"time"
 
@@ -11,15 +12,20 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
+	cfg "github.com/conductorone/baton-tenable-vm/pkg/config"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 const TTL = 5 // in minutes
 
 type Connector struct {
-	client         *client.TenableVMClient
-	cachedUsers    map[string]*client.User
-	usersTimestamp time.Time
-	usersMtx       sync.Mutex
+	client            *client.TenableVMClient
+	enableOnProvision bool
+	cachedUsers       map[string]*client.User
+	usersTimestamp    time.Time
+	usersMtx          sync.Mutex
 }
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
@@ -27,7 +33,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 	return []connectorbuilder.ResourceSyncer{
 		newUserBuilder(d.client, d),
 		newRoleBuilder(d.client, d),
-		newGroupBuilder(d.client),
+		newGroupBuilder(d.client, d),
 		newPermissionBuilder(d.client, d),
 	}
 }
@@ -99,13 +105,28 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 	return nil, nil
 }
 
+// reEnableUserIfNeeded is a helper function that re-enables a user if they are disabled and enableOnProvision is true.
+func (c *Connector) reEnableUserIfNeeded(ctx context.Context, user *client.User, operationType string) error {
+	if user != nil && !user.Enabled && c.enableOnProvision {
+		l := ctxzap.Extract(ctx)
+		userId := strconv.Itoa(user.ID)
+		_, err := c.client.EnableUser(ctx, userId)
+		if err != nil {
+			l.Debug("Error while re-enabling user", zap.Error(err), zap.String("user_id", userId))
+			return fmt.Errorf("%s granted but failed to re-enable user: %w", operationType, err)
+		}
+	}
+	return nil
+}
+
 // New returns a new instance of the connector.
-func New(ctx context.Context, accessKey string, secretKey string) (*Connector, error) {
-	client, err := client.NewClient(ctx, accessKey, secretKey)
+func New(ctx context.Context, cfg *cfg.TenableVm) (*Connector, error) {
+	client, err := client.NewClient(ctx, cfg.AccessKey, cfg.SecretKey)
 	if err != nil {
 		return nil, err
 	}
 	return &Connector{
-		client: client,
+		client:            client,
+		enableOnProvision: cfg.EnableOnProvision,
 	}, nil
 }

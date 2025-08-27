@@ -69,6 +69,7 @@ Flags:
       --client-secret string         The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
       --access-key string            required: Access key part of the api key ($BATON_ACCESS_KEY)
       --secret-key string            required: Secret key part of the api key ($BATON_SECRET_KEY)
+      --enable-on-provision bool     Whether to re-enable a user if disabled when provisioning. False by default.($BATON_ENABLE_ON_PROVISION)
   -f, --file string                  The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
   -h, --help                         help for baton-tenable-vm
       --log-format string            The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
