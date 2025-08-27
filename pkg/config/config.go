@@ -7,18 +7,25 @@ import (
 var (
 	SecretKeyField = field.StringField(
 		"secret-key",
-		field.WithDescription("The Tenable API key connect to the Tenable API"),
+		field.WithDescription("Tenable VM secret key to connect to the API"),
+		field.WithDisplayName("Secret Key"),
+		field.WithPlaceholder("Your Tenable VM Secret Key"),
+		field.WithIsSecret(true),
 		field.WithRequired(true),
 	)
 	AccessKeyField = field.StringField(
 		"access-key",
-		field.WithDescription("The Tenable API key connect to the Tenable API"),
+		field.WithDescription("Tenable VM access key to connect to the API"),
+		field.WithDisplayName("Access Key"),
+		field.WithPlaceholder("Your Tenable VM Access Key"),
+		field.WithIsSecret(true),
 		field.WithRequired(true),
 	)
 	EnableOnProvisionField = field.BoolField(
 		"enable-on-provision",
 		field.WithDescription("Enable user on provision if disabled"),
 		field.WithDefaultValue(false),
+		field.WithDisplayName("Enable user on provisioning"),
 	)
 	// ConfigurationFields defines the external configuration required for the
 	// connector to run. Note: these fields can be marked as optional or

@@ -112,7 +112,7 @@ func (c *Connector) reEnableUserIfNeeded(ctx context.Context, user *client.User,
 		userId := strconv.Itoa(user.ID)
 		_, err := c.client.EnableUser(ctx, userId)
 		if err != nil {
-			l.Debug("Error while re-enabling user", zap.Error(err), zap.String("user_id", userId))
+			l.Error("Error while re-enabling user", zap.Error(err), zap.String("user_id", userId))
 			return fmt.Errorf("%s granted but failed to re-enable user: %w", operationType, err)
 		}
 	}
