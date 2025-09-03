@@ -20,7 +20,8 @@ import (
 const memberEntitlement = "member"
 
 type groupBuilder struct {
-	client *client.TenableVMClient
+	client    *client.TenableVMClient
+	connector *Connector
 }
 
 func (o *groupBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -143,6 +144,10 @@ func (g *groupBuilder) Grant(
 				zap.String("user_id", userId),
 				zap.String("group_id", groupId),
 			)
+			err = g.connector.reEnableUserIfNeeded(ctx, &member, "group membership")
+			if err != nil {
+				return nil, err
+			}
 			return annotations.New(&v2.GrantAlreadyExists{}), nil
 		}
 	}
@@ -155,6 +160,18 @@ func (g *groupBuilder) Grant(
 			zap.String("group_id", groupId),
 		)
 		return nil, fmt.Errorf("baton-tenable: failed to add user to group: %w", err)
+	}
+
+	if g.connector.enableOnProvision {
+		user, err := g.client.GetUserDetails(ctx, userId)
+		if err != nil {
+			logger.Debug("Failed to get user: ", zap.Error(err), zap.String("user_id", userId))
+			return nil, fmt.Errorf("baton-tenable: group membership granted but failed to get user status: %w", err)
+		}
+		err = g.connector.reEnableUserIfNeeded(ctx, user, "group membership")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return nil, nil
@@ -214,8 +231,9 @@ func (g *groupBuilder) Revoke(
 	return nil, nil
 }
 
-func newGroupBuilder(c *client.TenableVMClient) *groupBuilder {
+func newGroupBuilder(cli *client.TenableVMClient, con *Connector) *groupBuilder {
 	return &groupBuilder{
-		client: c,
+		client:    cli,
+		connector: con,
 	}
 }

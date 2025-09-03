@@ -179,6 +179,7 @@ func (rb *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 	l := ctxzap.Extract(ctx)
 	userId := principal.Id.Resource
 	roleId := entitlement.Resource.Id.Resource
+
 	user, err := rb.client.GetUserDetails(ctx, userId)
 	if err != nil {
 		l.Debug("Error while getting user details", zap.Error(err))
@@ -192,6 +193,10 @@ func (rb *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 	}
 
 	if slices.Contains(userRoles.RolesUUID, roleId) {
+		err = rb.connector.reEnableUserIfNeeded(ctx, user, "role")
+		if err != nil {
+			return nil, err
+		}
 		return annotations.New(&v2.GrantAlreadyExists{}), nil
 	}
 
@@ -201,6 +206,11 @@ func (rb *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 			zap.String("role id", roleId),
 			zap.Any("user uuid", user.UUID),
 			zap.Error(err))
+		return nil, err
+	}
+
+	err = rb.connector.reEnableUserIfNeeded(ctx, user, "role")
+	if err != nil {
 		return nil, err
 	}
 

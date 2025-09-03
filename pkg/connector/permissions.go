@@ -224,6 +224,10 @@ func (o *permissionBuilder) Grant(ctx context.Context, principal *v2.Resource, e
 
 	for _, subject := range permission.Subjects {
 		if subject.UUID.String() == user.UUID {
+			err = o.connector.reEnableUserIfNeeded(ctx, user, "permission")
+			if err != nil {
+				return nil, err
+			}
 			return annotations.New(&v2.GrantAlreadyExists{}), nil
 		}
 	}
@@ -243,6 +247,11 @@ func (o *permissionBuilder) Grant(ctx context.Context, principal *v2.Resource, e
 	err = o.client.UpdatePermission(ctx, permission)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update permission %w", err)
+	}
+
+	err = o.connector.reEnableUserIfNeeded(ctx, user, "permission")
+	if err != nil {
+		return nil, err
 	}
 
 	return nil, nil
