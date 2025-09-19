@@ -10,11 +10,7 @@ jobs:
     uses: ConductorOne/github-workflows/.github/workflows/release.yaml@v2
     with:
       tag: ${{ github.ref_name }}
-      project_name: baton-tenable-vm
-      binary_name: baton-tenable-vm
-      main_path: ./cmd/baton-tenable-vm
-      homebrew_repo: conductorone/homebrew-baton
-      homebrew_formula: Formula
+      lambda: false
     secrets:
       RELENG_GITHUB_TOKEN: ${{ secrets.RELENG_GITHUB_TOKEN }}
       APPLE_SIGNING_KEY_P12: ${{ secrets.APPLE_SIGNING_KEY_P12 }}
