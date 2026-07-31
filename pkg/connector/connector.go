@@ -74,7 +74,7 @@ func (d *Connector) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
 		Description: "Connector syncing Tenable VM user and role data",
 		AccountCreationSchema: &v2.ConnectorAccountCreationSchema{
 			FieldMap: map[string]*v2.ConnectorAccountCreationSchema_Field{
-				"name": {
+				fieldName: {
 					DisplayName: "Name",
 					Required:    true,
 					Description: "This name will be used for the user.",
@@ -112,7 +112,7 @@ func (c *Connector) reEnableUserIfNeeded(ctx context.Context, user *client.User,
 		userId := strconv.Itoa(user.ID)
 		_, err := c.client.EnableUser(ctx, userId)
 		if err != nil {
-			l.Error("Error while re-enabling user", zap.Error(err), zap.String("user_id", userId))
+			l.Error("Error while re-enabling user", zap.Error(err), zap.String(fieldUserID, userId))
 			return fmt.Errorf("%s granted but failed to re-enable user: %w", operationType, err)
 		}
 	}
@@ -120,13 +120,18 @@ func (c *Connector) reEnableUserIfNeeded(ctx context.Context, user *client.User,
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, cfg *cfg.TenableVm) (*Connector, error) {
-	client, err := client.NewClient(ctx, cfg.AccessKey, cfg.SecretKey)
+func New(ctx context.Context, connectorConfig *cfg.TenableVm) (*Connector, error) {
+	baseURL := connectorConfig.BaseUrl
+	if baseURL == "" {
+		baseURL = client.BaseURL
+	}
+
+	client, err := client.NewClient(ctx, connectorConfig.AccessKey, connectorConfig.SecretKey, baseURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: failed to create client: %w", err)
 	}
 	return &Connector{
 		client:            client,
-		enableOnProvision: cfg.EnableOnProvision,
+		enableOnProvision: connectorConfig.EnableOnProvision,
 	}, nil
 }

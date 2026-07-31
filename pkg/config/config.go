@@ -21,6 +21,13 @@ var (
 		field.WithIsSecret(true),
 		field.WithRequired(true),
 	)
+	BaseURLField = field.StringField(
+		"base-url",
+		field.WithDisplayName("Base URL"),
+		field.WithDescription("Tenable Vulnerability Management API base URL. Defaults to the commercial cloud; use https://fedcloud.tenable.com for FedRAMP Moderate."),
+		// Keep in sync with client.BaseURL (commercial cloud host from main).
+		field.WithDefaultValue("https://cloud.tenable.com"),
+	)
 	EnableOnProvisionField = field.BoolField(
 		"enable-on-provision",
 		field.WithDescription("Enable user on provision if disabled"),
@@ -30,16 +37,12 @@ var (
 	// ConfigurationFields defines the external configuration required for the
 	// connector to run. Note: these fields can be marked as optional or
 	// required.
-	ConfigurationFields = []field.SchemaField{SecretKeyField, AccessKeyField, EnableOnProvisionField}
+	ConfigurationFields = []field.SchemaField{SecretKeyField, AccessKeyField, BaseURLField, EnableOnProvisionField}
 )
 
 //go:generate go run ./gen
 var Config = field.NewConfiguration(
-	[]field.SchemaField{
-		SecretKeyField,
-		AccessKeyField,
-		EnableOnProvisionField,
-	},
+	ConfigurationFields,
 	field.WithConnectorDisplayName("Tenable VM"),
 	field.WithHelpUrl("/docs/baton/tenable-vm"),
 	field.WithIconUrl("/static/app-icons/tenable-vm.svg"),

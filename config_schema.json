@@ -14,6 +14,14 @@
       }
     },
     {
+      "name": "base-url",
+      "displayName": "Base URL",
+      "description": "Tenable Vulnerability Management API base URL. Defaults to the commercial cloud; use https://fedcloud.tenable.com for FedRAMP Moderate.",
+      "stringField": {
+        "defaultValue": "https://cloud.tenable.com"
+      }
+    },
+    {
       "name": "enable-on-provision",
       "displayName": "Enable user on provisioning",
       "description": "Enable user on provision if disabled",

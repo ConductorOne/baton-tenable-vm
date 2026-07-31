@@ -28,7 +28,7 @@ var disableAccountActionSchema = &v2.BatonActionSchema{
 	Description: "Disables a user account",
 	Arguments: []*config.Field{
 		{
-			Name:        "user_id",
+			Name:        fieldUserID,
 			DisplayName: "User Resource ID",
 			Description: "The ID of the user to disable",
 			Field:       &config.Field_IntField{},
@@ -37,7 +37,7 @@ var disableAccountActionSchema = &v2.BatonActionSchema{
 	},
 	ReturnTypes: []*config.Field{
 		{
-			Name:        "success",
+			Name:        fieldSuccess,
 			DisplayName: "Success",
 			Description: "Whether the account was disabled successfully",
 			Field:       &config.Field_BoolField{},
@@ -51,7 +51,7 @@ var enableAccountActionSchema = &v2.BatonActionSchema{
 	Description: "Enables a user account",
 	Arguments: []*config.Field{
 		{
-			Name:        "user_id",
+			Name:        fieldUserID,
 			DisplayName: "User Resource ID",
 			Description: "The ID of the user to enable",
 			Field:       &config.Field_IntField{},
@@ -60,7 +60,7 @@ var enableAccountActionSchema = &v2.BatonActionSchema{
 	},
 	ReturnTypes: []*config.Field{
 		{
-			Name:        "success",
+			Name:        fieldSuccess,
 			DisplayName: "Success",
 			Description: "Whether the account was enabled successfully",
 			Field:       &config.Field_BoolField{},
@@ -93,7 +93,7 @@ func (c *Connector) disableAccountActionHandler(ctx context.Context, args *struc
 		return nil, nil, status.Errorf(codes.InvalidArgument, "invalid arguments")
 	}
 
-	resourceIDValue, exists := args.Fields["user_id"]
+	resourceIDValue, exists := args.Fields[fieldUserID]
 	if !exists || resourceIDValue == nil {
 		l.Error("baton-tenable-vm: disable action error missing user ID")
 		return nil, nil, status.Errorf(codes.InvalidArgument, "missing user id")
@@ -114,11 +114,11 @@ func (c *Connector) disableAccountActionHandler(ctx context.Context, args *struc
 	}
 
 	if user != nil && user.Enabled {
-		l.Error("baton-tenable-vm: disable action error user is still enabled", zap.String("user_id", uid))
+		l.Error("baton-tenable-vm: disable action error user is still enabled", zap.String(fieldUserID, uid))
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: disable user returned success but user %s is still enabled", uid)
 	}
 
-	l.Info("baton-tenable-vm: user disabled successfully", zap.String("user_id", uid))
+	l.Info("baton-tenable-vm: user disabled successfully", zap.String(fieldUserID, uid))
 
 	return getResponseStruct(true), nil, err
 }
@@ -130,7 +130,7 @@ func (c *Connector) enableAccountActionHandler(ctx context.Context, args *struct
 		return nil, nil, status.Errorf(codes.InvalidArgument, "invalid arguments")
 	}
 
-	resourceIDValue, exists := args.Fields["user_id"]
+	resourceIDValue, exists := args.Fields[fieldUserID]
 	if !exists || resourceIDValue == nil {
 		l.Error("baton-tenable-vm: enable action error missing user ID")
 		return nil, nil, status.Errorf(codes.InvalidArgument, "missing user ID")
@@ -151,11 +151,11 @@ func (c *Connector) enableAccountActionHandler(ctx context.Context, args *struct
 	}
 
 	if user != nil && !user.Enabled {
-		l.Error("baton-tenable-vm: enable action error user is still disabled", zap.String("user_id", uid))
+		l.Error("baton-tenable-vm: enable action error user is still disabled", zap.String(fieldUserID, uid))
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: enable user returned success but user %s is still disabled", uid)
 	}
 
-	l.Info("baton-tenable-vm: user enabled successfully", zap.String("user_id", uid))
+	l.Info("baton-tenable-vm: user enabled successfully", zap.String(fieldUserID, uid))
 
 	return getResponseStruct(true), nil, err
 }
@@ -163,7 +163,7 @@ func (c *Connector) enableAccountActionHandler(ctx context.Context, args *struct
 func getResponseStruct(success bool) *structpb.Struct {
 	return &structpb.Struct{
 		Fields: map[string]*structpb.Value{
-			"success": {
+			fieldSuccess: {
 				Kind: &structpb.Value_BoolValue{BoolValue: success},
 			},
 		},

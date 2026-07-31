@@ -14,6 +14,14 @@ import (
 
 const symbols = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
+// Field keys shared across resource profiles, action schemas, and log fields.
+const (
+	fieldName    = "name"
+	fieldUUID    = "uuid"
+	fieldUserID  = "user_id"
+	fieldSuccess = "success"
+)
+
 func isPasswordValid(password string) bool {
 	var hasUpper, hasLower, hasDigit, hasSpecial bool
 
