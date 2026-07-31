@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -99,13 +98,12 @@ func (c *Connector) disableAccountActionHandler(ctx context.Context, args *struc
 		return nil, nil, status.Errorf(codes.InvalidArgument, "missing user id")
 	}
 
-	uidField, ok := resourceIDValue.GetKind().(*structpb.Value_NumberValue)
-	if !ok {
-		l.Error("baton-tenable-vm: disable action error invalid user ID format")
+	uid, err := extractActionUserID(resourceIDValue)
+	if err != nil {
+		l.Error("baton-tenable-vm: disable action error invalid user ID format", zap.Error(err))
 		return nil, nil, status.Errorf(codes.InvalidArgument, "invalid user ID format")
 	}
 
-	uid := strconv.Itoa(int(uidField.NumberValue))
 	user, err := c.client.DisableUser(ctx, uid)
 	if err != nil {
 		l.Error("baton-tenable-vm: disable action error failed to disable user", zap.Error(err))
@@ -136,13 +134,12 @@ func (c *Connector) enableAccountActionHandler(ctx context.Context, args *struct
 		return nil, nil, status.Errorf(codes.InvalidArgument, "missing user ID")
 	}
 
-	uidField, ok := resourceIDValue.GetKind().(*structpb.Value_NumberValue)
-	if !ok {
-		l.Error("baton-tenable-vm: enable action error invalid user ID format")
+	uid, err := extractActionUserID(resourceIDValue)
+	if err != nil {
+		l.Error("baton-tenable-vm: enable action error invalid user ID format", zap.Error(err))
 		return nil, nil, status.Errorf(codes.InvalidArgument, "invalid user ID format")
 	}
 
-	uid := strconv.Itoa(int(uidField.NumberValue))
 	user, err := c.client.EnableUser(ctx, uid)
 	if err != nil {
 		l.Error("baton-tenable-vm: enable action error failed to enable user", zap.Error(err))

@@ -130,7 +130,7 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 		Name        string `json:"name"`
 		Permissions int    `json:"permissions"`
 		Email       string `json:"email"`
-		Enabled     bool   `json:"enabled"`
+		Enabled     *bool  `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "malformed body")

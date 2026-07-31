@@ -1,5 +1,10 @@
 name: ci
-on: pull_request
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
 jobs:
   go-lint:
     runs-on: ubuntu-latest
@@ -40,10 +45,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BATON_LOG_LEVEL: debug
-      # Credentials and host of the in-repo mock API (cmd/test-server).
-      BATON_ACCESS_KEY: test-access-key
-      BATON_SECRET_KEY: test-secret-key
-      BATON_BASE_URL: http://localhost:8765
+      # Mock credentials / host — set via gh secret/variable against cmd/test-server.
+      BATON_ACCESS_KEY: ${{ secrets.BATON_ACCESS_KEY }}
+      BATON_SECRET_KEY: ${{ secrets.BATON_SECRET_KEY }}
+      BATON_BASE_URL: ${{ vars.BATON_BASE_URL }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,16 +70,29 @@ jobs:
           done
           echo "Test server failed to start"
           exit 1
-      # Fixtures from cmd/test-server/seeds.go: Bob (user 1002) is a member of
-      # Engineering (group 101). sync-test@v4 covers sync + grant/revoke
-      # idempotency (GrantAlreadyExists / GrantAlreadyRevoked).
+      # Fixtures from cmd/test-server/seeds.go (Bob / Engineering). sync-test@v4
+      # covers sync + grant/revoke idempotency.
       - name: Grant/Revoke group membership
         uses: ConductorOne/github-workflows/actions/sync-test@v4
         with:
           connector: ./baton-tenable-vm
-          baton-entitlement: group:101:member
-          baton-principal: '1002'
-          baton-principal-type: user
+          baton-entitlement: ${{ vars.TEST_ENTITLEMENT_GROUP }}
+          baton-principal: ${{ vars.TEST_PRINCIPAL }}
+          baton-principal-type: ${{ vars.TEST_PRINCIPAL_TYPE }}
+      # enable_account / disable_account actions — Bob starts enabled.
+      # Action names match RegisterActionManager (not the enable_user defaults).
+      - name: Account status lifecycle
+        uses: ConductorOne/github-workflows/actions/account-status-lifecycle-test@v3
+        with:
+          connector: ./baton-tenable-vm
+          account-id: ${{ vars.TEST_PRINCIPAL }}
+          enable-action-name: enable_account
+          disable-action-name: disable_account
+          id-parameter-name: user_id
+          test-flow: disable-enable
+      # Note: account-provisioning@v4 is intentionally omitted — Delete soft-
+      # disables the user (Tenable practice), so the action's "must disappear
+      # from sync" assertion would fail against both the mock and the live API.
       - name: Stop test server
         if: always()
         run: pkill -f test-server || true

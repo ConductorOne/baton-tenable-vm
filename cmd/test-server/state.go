@@ -206,7 +206,7 @@ func (s *State) SetUserEnabled(id int, enabled bool) (User, bool) {
 	return s.copyUserLocked(u), true
 }
 
-func (s *State) UpdateUser(id int, name string, permissions int, email string, enabled bool) (User, bool) {
+func (s *State) UpdateUser(id int, name string, permissions int, email string, enabled *bool) (User, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	u, ok := s.usersByID[id]
@@ -222,7 +222,10 @@ func (s *State) UpdateUser(id int, name string, permissions int, email string, e
 	if permissions != 0 {
 		u.Permissions = permissions
 	}
-	u.Enabled = enabled
+	// Match real Tenable users-edit: an omitted "enabled" leaves the field unchanged.
+	if enabled != nil {
+		u.Enabled = *enabled
+	}
 	return s.copyUserLocked(u), true
 }
 
