@@ -148,8 +148,8 @@ func parseIntoRoleResource(role *client.RoleDetails, parentResourceID *v2.Resour
 	stringUUID := role.UUID.String()
 	rolePermissions := strings.Join(role.Permissions, ",")
 	profile := map[string]interface{}{
-		"uuid":        stringUUID,
-		"name":        role.Name,
+		fieldUUID:     stringUUID,
+		fieldName:     role.Name,
 		"description": role.Description,
 		"type":        role.Type,
 		"status":      role.Status,

@@ -28,15 +28,22 @@ type TenableVMClient struct {
 	httpClient *uhttp.BaseHttpClient
 	accessKey  string
 	secretKey  string
+	baseURL    string
 }
 
 type ReqOpt func(reqURL *url.URL)
 
-func NewClient(ctx context.Context, accessKey, secretKey string) (*TenableVMClient, error) {
+func NewClient(ctx context.Context, accessKey, secretKey, baseURL string) (*TenableVMClient, error) {
+	baseURL, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
+
 	client := &TenableVMClient{
 		httpClient: &uhttp.BaseHttpClient{},
 		accessKey:  accessKey,
 		secretKey:  secretKey,
+		baseURL:    baseURL,
 	}
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
@@ -57,7 +64,7 @@ func (c *TenableVMClient) GetUsers(ctx context.Context) ([]User, annotations.Ann
 	l := ctxzap.Extract(ctx)
 	var res UsersResponse
 
-	queryUrl, err := url.JoinPath(BaseURL, BaseUsersPath)
+	queryUrl, err := url.JoinPath(c.baseURL, BaseUsersPath)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return nil, nil, err
@@ -74,7 +81,7 @@ func (c *TenableVMClient) GetUsers(ctx context.Context) ([]User, annotations.Ann
 func (c *TenableVMClient) GetUserDetails(ctx context.Context, userId string) (*User, error) {
 	var user User
 
-	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId))
+	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserPath, userId))
 	if err != nil {
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
@@ -90,7 +97,7 @@ func (c *TenableVMClient) GetRoles(ctx context.Context) ([]*RoleDetails, annotat
 	l := ctxzap.Extract(ctx)
 	var res []*RoleDetails
 
-	queryUrl, err := url.JoinPath(BaseURL, RolesPath)
+	queryUrl, err := url.JoinPath(c.baseURL, RolesPath)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return nil, nil, err
@@ -108,7 +115,7 @@ func (c *TenableVMClient) GetRoles(ctx context.Context) ([]*RoleDetails, annotat
 func (c *TenableVMClient) GetUserRoles(ctx context.Context, userUUID string) (*UserRole, error) {
 	var userRoles UserRole
 
-	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserRolePath, userUUID))
+	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserRolePath, userUUID))
 	if err != nil {
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
@@ -123,7 +130,7 @@ func (c *TenableVMClient) GetUserRoles(ctx context.Context, userUUID string) (*U
 func (c *TenableVMClient) UpdateUser(ctx context.Context, userId string, body UserUpdateReqBody) (*User, error) {
 	var user User
 
-	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId))
+	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserPath, userId))
 	if err != nil {
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
@@ -138,7 +145,7 @@ func (c *TenableVMClient) UpdateUser(ctx context.Context, userId string, body Us
 func (c *TenableVMClient) UpdateUserRoles(ctx context.Context, userUUID string, roleUUID string) (*UserRole, error) {
 	var userRoles UserRole
 
-	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserRolePath, userUUID))
+	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserRolePath, userUUID))
 	if err != nil {
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
@@ -154,7 +161,7 @@ func (c *TenableVMClient) UpdateUserRoles(ctx context.Context, userUUID string, 
 func (c *TenableVMClient) CreateUser(ctx context.Context, newUser NewUser) (*User, error) {
 	var user User
 
-	queryUrl, err := url.JoinPath(BaseURL, BaseUsersPath)
+	queryUrl, err := url.JoinPath(c.baseURL, BaseUsersPath)
 	if err != nil {
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
@@ -169,7 +176,7 @@ func (c *TenableVMClient) CreateUser(ctx context.Context, newUser NewUser) (*Use
 
 // https://developer.tenable.com/reference/users-delete
 func (c *TenableVMClient) DeleteUser(ctx context.Context, userId string) error {
-	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId))
+	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserPath, userId))
 	if err != nil {
 		return fmt.Errorf("error creating url: %w", err)
 	}
@@ -182,7 +189,7 @@ func (c *TenableVMClient) DeleteUser(ctx context.Context, userId string) error {
 
 // https://developer.tenable.com/reference/users-enabled
 func (c *TenableVMClient) DisableUser(ctx context.Context, userId string) (*User, error) {
-	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId), "enabled")
+	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserPath, userId), "enabled")
 	if err != nil {
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
@@ -197,7 +204,7 @@ func (c *TenableVMClient) DisableUser(ctx context.Context, userId string) (*User
 
 // https://developer.tenable.com/reference/users-enabled
 func (c *TenableVMClient) EnableUser(ctx context.Context, userId string) (*User, error) {
-	queryUrl, err := url.JoinPath(BaseURL, fmt.Sprintf(UserPath, userId), "enabled")
+	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserPath, userId), "enabled")
 	if err != nil {
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
@@ -214,7 +221,7 @@ func (c *TenableVMClient) GetGroups(ctx context.Context) ([]Group, annotations.A
 	l := ctxzap.Extract(ctx)
 	var res GroupsResponse
 
-	queryUrl, err := url.JoinPath(BaseURL, ListGroupsPath)
+	queryUrl, err := url.JoinPath(c.baseURL, ListGroupsPath)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return nil, nil, err
@@ -235,7 +242,7 @@ func (c *TenableVMClient) GetGroupMembers(ctx context.Context, groupId string) (
 
 	path := fmt.Sprintf(ListGroupMembersPath, groupId)
 
-	queryUrl, err := url.JoinPath(BaseURL, path)
+	queryUrl, err := url.JoinPath(c.baseURL, path)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return nil, nil, err
@@ -254,7 +261,7 @@ func (c *TenableVMClient) DeleteUserGroupMembership(ctx context.Context, groupId
 	l := ctxzap.Extract(ctx)
 	path := fmt.Sprintf(UserGroupMembershipPath, groupId, userId)
 
-	queryUrl, err := url.JoinPath(BaseURL, path)
+	queryUrl, err := url.JoinPath(c.baseURL, path)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return err
@@ -272,7 +279,7 @@ func (c *TenableVMClient) DeleteUserGroupMembership(ctx context.Context, groupId
 func (c *TenableVMClient) CreateUserGroupMembership(ctx context.Context, groupId string, userId string, add bool) error {
 	l := ctxzap.Extract(ctx)
 	path := fmt.Sprintf(UserGroupMembershipPath, groupId, userId)
-	queryUrl, err := url.JoinPath(BaseURL, path)
+	queryUrl, err := url.JoinPath(c.baseURL, path)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return err
@@ -290,7 +297,7 @@ func (c *TenableVMClient) ListPermissions(ctx context.Context) ([]Permission, an
 	l := ctxzap.Extract(ctx)
 	var res PermissionsList
 
-	queryUrl, err := url.JoinPath(BaseURL, PermissionsPath)
+	queryUrl, err := url.JoinPath(c.baseURL, PermissionsPath)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return nil, nil, err
@@ -309,7 +316,7 @@ func (c *TenableVMClient) GetPermissionDetails(ctx context.Context, uuid string)
 	l := ctxzap.Extract(ctx)
 	var res Permission
 
-	queryUrl, err := url.JoinPath(BaseURL, PermissionsPath, uuid)
+	queryUrl, err := url.JoinPath(c.baseURL, PermissionsPath, uuid)
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return nil, err
@@ -333,7 +340,7 @@ func (c *TenableVMClient) UpdatePermission(ctx context.Context, updatedPermissio
 		Objects:  parseTagNames(updatedPermission.Objects),
 		Subjects: updatedPermission.Subjects,
 	}
-	queryUrl, err := url.JoinPath(BaseURL, PermissionsPath, updatedPermission.UUID.String())
+	queryUrl, err := url.JoinPath(c.baseURL, PermissionsPath, updatedPermission.UUID.String())
 	if err != nil {
 		l.Error(fmt.Sprintf("Error creating url: %s", err))
 		return err

@@ -84,7 +84,7 @@ func (o *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 
 func parseIntoGroupResource(_ context.Context, group *client.Group, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	profile := map[string]interface{}{
-		"name":           group.Name,
+		fieldName:        group.Name,
 		"id":             group.ID,
 		"UUID":           group.UUID,
 		"container_uuid": group.ContainerUUID,
@@ -131,7 +131,7 @@ func (g *groupBuilder) Grant(
 	if err != nil {
 		logger.Debug("Failed to add user to group, could not get current memberships: ",
 			zap.Error(err),
-			zap.String("user_id", userId),
+			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
 		return annos, err
@@ -141,7 +141,7 @@ func (g *groupBuilder) Grant(
 		memberId := strconv.Itoa(member.ID)
 		if memberId == userId {
 			logger.Debug("User is already a group member",
-				zap.String("user_id", userId),
+				zap.String(fieldUserID, userId),
 				zap.String("group_id", groupId),
 			)
 			err = g.connector.reEnableUserIfNeeded(ctx, &member, "group membership")
@@ -156,7 +156,7 @@ func (g *groupBuilder) Grant(
 	if err != nil {
 		logger.Debug("Failed to add user to group: ",
 			zap.Error(err),
-			zap.String("user_id", userId),
+			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
 		return nil, fmt.Errorf("baton-tenable: failed to add user to group: %w", err)
@@ -165,7 +165,7 @@ func (g *groupBuilder) Grant(
 	if g.connector.enableOnProvision {
 		user, err := g.client.GetUserDetails(ctx, userId)
 		if err != nil {
-			logger.Debug("Failed to get user: ", zap.Error(err), zap.String("user_id", userId))
+			logger.Debug("Failed to get user: ", zap.Error(err), zap.String(fieldUserID, userId))
 			return nil, fmt.Errorf("baton-tenable: group membership granted but failed to get user status: %w", err)
 		}
 		err = g.connector.reEnableUserIfNeeded(ctx, user, "group membership")
@@ -192,7 +192,7 @@ func (g *groupBuilder) Revoke(
 	if err != nil {
 		logger.Debug("Failed to add user to group, could not get current memberships: ",
 			zap.Error(err),
-			zap.String("user_id", userId),
+			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
 		return annos, err
@@ -204,7 +204,7 @@ func (g *groupBuilder) Revoke(
 		if memberId == userId {
 			isMember = true
 			logger.Debug("User is a group member, revoking grant...",
-				zap.String("user_id", userId),
+				zap.String(fieldUserID, userId),
 				zap.String("group_id", groupId),
 			)
 		}
@@ -212,7 +212,7 @@ func (g *groupBuilder) Revoke(
 
 	if !isMember {
 		logger.Debug("Group membership grant already revoked",
-			zap.String("user_id", userId),
+			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
 		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
@@ -222,7 +222,7 @@ func (g *groupBuilder) Revoke(
 	if err != nil {
 		logger.Debug("Failed to remove user from group: ",
 			zap.Error(err),
-			zap.String("user_id", userId),
+			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
 		return nil, fmt.Errorf("baton-tenable: failed to remove user from group: %w", err)

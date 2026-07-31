@@ -129,8 +129,8 @@ func (o *permissionBuilder) Grants(ctx context.Context, resource *v2.Resource, p
 func parseIntoPermissionResource(permission *client.Permission, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	actionList := strings.Join(permission.Actions, " ")
 	profile := map[string]interface{}{
-		"name":    permission.Name,
-		"uuid":    permission.UUID.String(),
+		fieldName: permission.Name,
+		fieldUUID: permission.UUID.String(),
 		"actions": actionList,
 	}
 

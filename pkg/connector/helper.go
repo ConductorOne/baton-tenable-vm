@@ -10,9 +10,18 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const symbols = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+
+// Field keys shared across resource profiles, action schemas, and log fields.
+const (
+	fieldName    = "name"
+	fieldUUID    = "uuid"
+	fieldUserID  = "user_id"
+	fieldSuccess = "success"
+)
 
 func isPasswordValid(password string) bool {
 	var hasUpper, hasLower, hasDigit, hasSpecial bool
@@ -77,4 +86,23 @@ func getGroupResourceId(uuid string, cachedGroups map[string]string) (*v2.Resour
 		ResourceType: groupResourceType.Id,
 		Resource:     groupID,
 	}, nil
+}
+
+// extractActionUserID accepts either a number (IntField schema) or a string
+// (CLI / account-status-lifecycle-test pass a string via jq --arg).
+func extractActionUserID(v *structpb.Value) (string, error) {
+	if v == nil {
+		return "", fmt.Errorf("user id is nil")
+	}
+	switch k := v.GetKind().(type) {
+	case *structpb.Value_NumberValue:
+		return strconv.Itoa(int(k.NumberValue)), nil
+	case *structpb.Value_StringValue:
+		if k.StringValue == "" {
+			return "", fmt.Errorf("user id is empty")
+		}
+		return k.StringValue, nil
+	default:
+		return "", fmt.Errorf("user id must be a number or string")
+	}
 }

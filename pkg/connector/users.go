@@ -69,10 +69,10 @@ func parseIntoUserResource(_ context.Context, user *client.User, parentResourceI
 	)
 
 	profile := map[string]interface{}{
-		"user_id":  user.ID,
-		"uuid":     user.UUID,
-		"username": user.Username,
-		"email":    user.Email,
+		fieldUserID: user.ID,
+		fieldUUID:   user.UUID,
+		"username":  user.Username,
+		"email":     user.Email,
 	}
 
 	if user.Name != "" {
@@ -161,7 +161,7 @@ func (o *userBuilder) CreateAccount(
 	if !ok {
 		return nil, nil, nil, fmt.Errorf("missing or invalid 'email' in profile")
 	}
-	name, ok := profile["name"].(string)
+	name, ok := profile[fieldName].(string)
 	if !ok {
 		return nil, nil, nil, fmt.Errorf("missing or invalid 'name' in profile")
 	}
@@ -213,11 +213,11 @@ func (o *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (ann
 		return nil, fmt.Errorf("baton-tenable-vm: failed to disable user: %w", err)
 	}
 	if updatedUser != nil && updatedUser.Enabled {
-		l.Error("baton-tenable-vm: disable action error, user is still enabled", zap.String("user_id", userID))
+		l.Error("baton-tenable-vm: disable action error, user is still enabled", zap.String(fieldUserID, userID))
 		return nil, status.Errorf(codes.Unknown, "baton-tenable-vm: disable user returned success but user %s is still enabled", userID)
 	}
 
-	l.Info("baton-tenable-vm: user disabled successfully", zap.String("user_id", userID))
+	l.Info("baton-tenable-vm: user disabled successfully", zap.String(fieldUserID, userID))
 	return nil, nil
 }
 
