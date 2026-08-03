@@ -2,17 +2,13 @@ package connector
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -27,11 +23,8 @@ const (
 )
 
 type roleBuilder struct {
-	client        *client.TenableVMClient
-	connector     *Connector
-	roleCache     map[string]RoleMapRegistry
-	cacheMutex    sync.Mutex
-	cacheLastLoad time.Time
+	client    *client.TenableVMClient
+	connector *Connector
 }
 
 func (rb *roleBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -44,26 +37,26 @@ type RoleMapRegistry struct {
 }
 
 // There is no endpoint for roles in the Tenable API. Will list users and get the assigned roles.
-func (rb *roleBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (rb *roleBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
 	var resources []*v2.Resource
 
-	roles, annotations, err := rb.client.GetRoles(ctx)
+	roles, annos, err := rb.client.GetRoles(ctx)
 	if err != nil {
-		return nil, "", annotations, err
+		return nil, &rs.SyncOpResults{Annotations: annos}, err
 	}
 	for _, role := range roles {
 		newRoleResource, err := parseIntoRoleResource(role, parentResourceID)
 		if err != nil {
 			l.Debug("Failed to parse into role resource", zap.Any("role", role))
-			return nil, "", nil, err
+			return nil, &rs.SyncOpResults{Annotations: annos}, err
 		}
 		resources = append(resources, newRoleResource)
 	}
-	return resources, "", nil, nil
+	return resources, &rs.SyncOpResults{Annotations: annos}, nil
 }
 
-func (o *roleBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (o *roleBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var roleEntitlements []*v2.Entitlement
 
 	assigmentOptions := []entitlement.EntitlementOption{
@@ -74,26 +67,27 @@ func (o *roleBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *
 
 	roleEntitlements = append(roleEntitlements, entitlement.NewPermissionEntitlement(resource, rolePermissionName, assigmentOptions...))
 
-	return roleEntitlements, "", nil, nil
+	return roleEntitlements, &rs.SyncOpResults{}, nil
 }
 
-func (rb *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	var grants []*v2.Grant
+func (rb *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	l := ctxzap.Extract(ctx)
 
-	annos, err := rb.loadRoleMapCache(ctx)
+	users, annos, err := getCachedUsers(ctx, rb.client, opts)
 	if err != nil {
-		l.Debug("Error while listing roles, fail to load role map from user list", zap.Any("error", err))
-		return nil, "", annos, err
+		l.Debug("Error while listing roles, failed to load users from session store", zap.Any("error", err))
+		return nil, &rs.SyncOpResults{Annotations: annos}, err
 	}
+	roleMap := buildRoleMap(users)
 
 	roleUUID := resource.Id.Resource
-	roleRegistry, exists := rb.roleCache[roleUUID]
+	roleRegistry, exists := roleMap[roleUUID]
 	if !exists {
 		// Role is not assigned to any user, continue.
-		return nil, "", nil, nil
+		return nil, &rs.SyncOpResults{Annotations: annos}, nil
 	}
 
+	var grants []*v2.Grant
 	for _, user := range roleRegistry.Users {
 		userId := &v2.ResourceId{
 			ResourceType: userResourceType.Id,
@@ -104,50 +98,36 @@ func (rb *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		grants = append(grants, membershipGrant)
 	}
 
-	return grants, "", nil, nil
+	return grants, &rs.SyncOpResults{Annotations: annos}, nil
 }
 
-func (o *roleBuilder) loadRoleMapCache(ctx context.Context) (annotations.Annotations, error) {
-	o.cacheMutex.Lock()
-	defer o.cacheMutex.Unlock()
-
-	// If already populated and still valid, skip
-	if o.roleCache != nil && time.Since(o.cacheLastLoad) < (TTL*time.Minute) {
-		return nil, nil
-	}
-
-	annos, err := o.connector.cacheUsers(ctx)
-	if err != nil {
-		return annos, fmt.Errorf("failed to cache users: %w", err)
-	}
-
-	cachedUsers := o.connector.cachedUsers
+// buildRoleMap derives the role-to-users mapping from the session-cached user
+// list. Each user carries its assigned RBAC roles, so the mapping is built in
+// memory without any additional API calls.
+func buildRoleMap(users map[string]*client.User) map[string]RoleMapRegistry {
 	roleMap := make(map[string]RoleMapRegistry)
-	for _, user := range cachedUsers {
-		for _, role := range user.RbacRoles {
+	for _, user := range users {
+		for i := range user.RbacRoles {
+			role := user.RbacRoles[i]
 			uuidKey := role.UUID.String()
-			if _, exists := roleMap[uuidKey]; !exists {
+			if existing, exists := roleMap[uuidKey]; exists {
+				existing.Users = append(existing.Users, user)
+				roleMap[uuidKey] = existing
+			} else {
 				roleMap[uuidKey] = RoleMapRegistry{
 					Role:  &role,
 					Users: []*client.User{user},
 				}
-			} else {
-				existing := roleMap[uuidKey]
-				existing.Users = append(existing.Users, user)
-				roleMap[uuidKey] = existing
 			}
 		}
 	}
-
-	o.roleCache = roleMap
-	o.cacheLastLoad = time.Now()
-	return nil, nil
+	return roleMap
 }
 
 func parseIntoRoleResource(role *client.RoleDetails, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	stringUUID := role.UUID.String()
 	rolePermissions := strings.Join(role.Permissions, ",")
-	profile := map[string]interface{}{
+	profile := map[string]any{
 		fieldUUID:     stringUUID,
 		fieldName:     role.Name,
 		"description": role.Description,
@@ -155,11 +135,9 @@ func parseIntoRoleResource(role *client.RoleDetails, parentResourceID *v2.Resour
 		"status":      role.Status,
 		"permissions": rolePermissions,
 	}
-	roleTraits := []rs.RoleTraitOption{
-		rs.WithRoleProfile(profile),
+	resourceTraitOps := []rs.ResourceOption{
+		rs.WithResourceProfile(profile),
 	}
-
-	resourceTraitOps := []rs.ResourceOption{}
 	if parentResourceID != nil {
 		resourceTraitOps = append(resourceTraitOps, rs.WithParentResourceID(parentResourceID))
 	}
@@ -167,7 +145,7 @@ func parseIntoRoleResource(role *client.RoleDetails, parentResourceID *v2.Resour
 		role.Name,
 		roleResourceType,
 		stringUUID,
-		roleTraits,
+		nil,
 		resourceTraitOps...,
 	)
 }

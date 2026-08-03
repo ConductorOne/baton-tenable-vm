@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"sync"
-	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 	cfg "github.com/conductorone/baton-tenable-vm/pkg/config"
@@ -18,19 +17,16 @@ import (
 	"go.uber.org/zap"
 )
 
-const TTL = 5 // in minutes
+var _ connectorbuilder.ConnectorBuilderV2 = (*Connector)(nil)
 
 type Connector struct {
 	client            *client.TenableVMClient
 	enableOnProvision bool
-	cachedUsers       map[string]*client.User
-	usersTimestamp    time.Time
-	usersMtx          sync.Mutex
 }
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
-func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client, d),
 		newRoleBuilder(d.client, d),
 		newGroupBuilder(d.client, d),
@@ -42,29 +38,6 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 // It streams a response, always starting with a metadata object, following by chunked payloads for the asset.
 func (d *Connector) Asset(ctx context.Context, asset *v2.AssetRef) (string, io.ReadCloser, error) {
 	return "", nil, nil
-}
-
-func (c *Connector) cacheUsers(ctx context.Context) (annotations.Annotations, error) {
-	c.usersMtx.Lock()
-	defer c.usersMtx.Unlock()
-
-	if c.cachedUsers != nil && time.Since(c.usersTimestamp) < TTL*time.Minute {
-		return nil, nil
-	}
-
-	usersToCache := make(map[string]*client.User)
-	users, annos, err := c.client.GetUsers(ctx)
-	if err != nil {
-		return annos, fmt.Errorf("error creating users cache %w", err)
-	}
-
-	for _, user := range users {
-		usersToCache[user.UUID] = &user
-	}
-
-	c.cachedUsers = usersToCache
-	c.usersTimestamp = time.Now()
-	return nil, nil
 }
 
 // Metadata returns metadata about the connector.
@@ -119,19 +92,20 @@ func (c *Connector) reEnableUserIfNeeded(ctx context.Context, user *client.User,
 	return nil
 }
 
-// New returns a new instance of the connector.
-func New(ctx context.Context, connectorConfig *cfg.TenableVm) (*Connector, error) {
+// New returns a new instance of the connector. It matches the signature expected
+// by config.RunConnector (cli.NewConnector), returning a ConnectorBuilderV2.
+func New(ctx context.Context, connectorConfig *cfg.TenableVm, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
 	baseURL := connectorConfig.BaseUrl
 	if baseURL == "" {
 		baseURL = client.BaseURL
 	}
 
-	client, err := client.NewClient(ctx, connectorConfig.AccessKey, connectorConfig.SecretKey, baseURL)
+	c, err := client.NewClient(ctx, connectorConfig.AccessKey, connectorConfig.SecretKey, baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("baton-tenable-vm: failed to create client: %w", err)
+		return nil, nil, fmt.Errorf("baton-tenable-vm: failed to create client: %w", err)
 	}
 	return &Connector{
-		client:            client,
+		client:            c,
 		enableOnProvision: connectorConfig.EnableOnProvision,
-	}, nil
+	}, nil, nil
 }
