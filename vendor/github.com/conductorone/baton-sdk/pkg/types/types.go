@@ -1,4 +1,5 @@
-package types //nolint:revive // we want this to be "types"
+//revive:disable-next-line:var-naming Package name is public SDK API.
+package types
 
 import (
 	"context"
