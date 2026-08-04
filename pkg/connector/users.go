@@ -9,12 +9,13 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 )
 
@@ -35,15 +36,15 @@ func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 
 // List returns all the users from the database as resource objects.
 // Users include a UserTrait because they are the 'shape' of a standard user.
-func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error) {
-	users, annos, err := getCachedUsers(ctx, o.client, opts)
+func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, _ resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error) {
+	users, annos, err := o.client.GetUsers(ctx)
 	if err != nil {
 		return nil, &resource.SyncOpResults{Annotations: annos}, err
 	}
 
 	var resources []*v2.Resource
-	for _, user := range users {
-		userResource, err := parseIntoUserResource(ctx, user, parentResourceID)
+	for i := range users {
+		userResource, err := parseIntoUserResource(ctx, &users[i], parentResourceID)
 		if err != nil {
 			return nil, &resource.SyncOpResults{Annotations: annos}, err
 		}
@@ -57,9 +58,29 @@ func (o *userBuilder) Entitlements(_ context.Context, resourceObj *v2.Resource, 
 	return nil, &resource.SyncOpResults{}, nil
 }
 
-// Grants always returns an empty slice for users since they don't have any entitlements.
+// Grants emits this user's RBAC role grants. Role Grants() returns empty so the
+// connector never buffers the full user set just to invert role→users (same
+// pattern as baton-arctic-wolf).
 func (o *userBuilder) Grants(ctx context.Context, resourceObj *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
-	return nil, &resource.SyncOpResults{}, nil
+	if resourceObj.GetId().GetResourceType() != userResourceType.Id {
+		return nil, &resource.SyncOpResults{}, nil
+	}
+
+	user, err := o.client.GetUserDetails(ctx, resourceObj.GetId().GetResource())
+	if err != nil {
+		return nil, &resource.SyncOpResults{}, err
+	}
+
+	var grants []*v2.Grant
+	for i := range user.RbacRoles {
+		roleRes := &v2.Resource{Id: &v2.ResourceId{
+			ResourceType: roleResourceType.Id,
+			Resource:     user.RbacRoles[i].UUID.String(),
+		}}
+		grants = append(grants, grant.NewGrant(roleRes, rolePermissionName, resourceObj.GetId()))
+	}
+
+	return grants, &resource.SyncOpResults{}, nil
 }
 
 func parseIntoUserResource(_ context.Context, user *client.User, parentResourceID *v2.ResourceId) (*v2.Resource, error) {

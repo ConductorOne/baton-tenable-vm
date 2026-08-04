@@ -21,6 +21,5 @@ func main() {
 		cfg.Config,
 		connector.New,
 		connectorrunner.WithDefaultCapabilitiesConnectorBuilderV2(&connector.Connector{}),
-		connectorrunner.WithSessionStoreEnabled(),
 	)
 }
