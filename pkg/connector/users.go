@@ -43,8 +43,8 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 	}
 
 	var resources []*v2.Resource
-	for i := range users {
-		userResource, err := parseIntoUserResource(ctx, &users[i], parentResourceID)
+	for _, user := range users {
+		userResource, err := parseIntoUserResource(ctx, &user, parentResourceID)
 		if err != nil {
 			return nil, &resource.SyncOpResults{Annotations: annos}, err
 		}
@@ -72,10 +72,10 @@ func (o *userBuilder) Grants(ctx context.Context, resourceObj *v2.Resource, _ re
 	}
 
 	var grants []*v2.Grant
-	for i := range user.RbacRoles {
+	for _, role := range user.RbacRoles {
 		roleRes := &v2.Resource{Id: &v2.ResourceId{
 			ResourceType: roleResourceType.Id,
-			Resource:     user.RbacRoles[i].UUID.String(),
+			Resource:     role.UUID.String(),
 		}}
 		grants = append(grants, grant.NewGrant(roleRes, rolePermissionName, resourceObj.GetId()))
 	}

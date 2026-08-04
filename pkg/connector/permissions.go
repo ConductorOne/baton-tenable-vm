@@ -39,8 +39,8 @@ func (o *permissionBuilder) List(ctx context.Context, parentResourceID *v2.Resou
 		return nil, &rs.SyncOpResults{Annotations: annos}, fmt.Errorf("baton-tenable-vm: failed to load permissions: %w", err)
 	}
 	var resources []*v2.Resource
-	for i := range permissions {
-		permissionResource, err := parseIntoPermissionResource(&permissions[i], parentResourceID)
+	for _, permission := range permissions {
+		permissionResource, err := parseIntoPermissionResource(&permission, parentResourceID)
 		if err != nil {
 			return nil, &rs.SyncOpResults{Annotations: annos}, err
 		}
@@ -85,9 +85,9 @@ func (o *permissionBuilder) Grants(ctx context.Context, resource *v2.Resource, _
 	if err != nil {
 		return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to load users: %w", err)
 	}
-	usersByUUID := make(map[string]*client.User, len(users))
-	for i := range users {
-		usersByUUID[users[i].UUID] = &users[i]
+	usersByUUID := make(map[string]client.User, len(users))
+	for _, user := range users {
+		usersByUUID[user.UUID] = user
 	}
 
 	groups, annos, err := o.client.GetGroups(ctx)
@@ -96,8 +96,8 @@ func (o *permissionBuilder) Grants(ctx context.Context, resource *v2.Resource, _
 		return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to load groups: %w", err)
 	}
 	groupsByUUID := make(map[string]string, len(groups))
-	for i := range groups {
-		groupsByUUID[groups[i].UUID] = strconv.Itoa(groups[i].ID)
+	for _, group := range groups {
+		groupsByUUID[group.UUID] = strconv.Itoa(group.ID)
 	}
 
 	for _, subject := range permission.Subjects {

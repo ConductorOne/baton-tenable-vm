@@ -66,8 +66,8 @@ func generateCredentials(credentialOptions *v2.LocalCredentialOptions) (string, 
 	return "", errors.New("failed to generate a valid password after 20 attempts")
 }
 
-func getUserResourceId(uuid string, cachedUsers map[string]*client.User) (*v2.ResourceId, error) {
-	user, ok := cachedUsers[uuid]
+func getUserResourceId(uuid string, usersByUUID map[string]client.User) (*v2.ResourceId, error) {
+	user, ok := usersByUUID[uuid]
 	if !ok {
 		return nil, fmt.Errorf("user not found, unknown UUID: %s", uuid)
 	}
@@ -77,8 +77,8 @@ func getUserResourceId(uuid string, cachedUsers map[string]*client.User) (*v2.Re
 	}, nil
 }
 
-func getGroupResourceId(uuid string, cachedGroups map[string]string) (*v2.ResourceId, error) {
-	groupID, ok := cachedGroups[uuid]
+func getGroupResourceId(uuid string, groupsByUUID map[string]string) (*v2.ResourceId, error) {
+	groupID, ok := groupsByUUID[uuid]
 	if !ok {
 		return nil, fmt.Errorf("group not found, unknown UUID: %s", uuid)
 	}
