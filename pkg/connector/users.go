@@ -68,7 +68,7 @@ func (o *userBuilder) Grants(ctx context.Context, resourceObj *v2.Resource, _ re
 
 	user, err := o.client.GetUserDetails(ctx, resourceObj.GetId().GetResource())
 	if err != nil {
-		return nil, &resource.SyncOpResults{}, err
+		return nil, &resource.SyncOpResults{}, fmt.Errorf("baton-tenable-vm: failed to get user details: %w", err)
 	}
 
 	var grants []*v2.Grant
