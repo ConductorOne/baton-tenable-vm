@@ -35,6 +35,21 @@ jobs:
           done
           echo "Test server failed to start"
           exit 1
+      # get-baton@v4 always hits baton-sdk /releases/latest. v0.21.0 published
+      # with zero assets, so pre-install from the last release that has binaries
+      # (matches go.mod). get-baton then no-ops when baton is already on PATH.
+      - name: Install baton CLI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VER=v0.20.8
+          curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o baton.tgz \
+            "https://github.com/conductorone/baton-sdk/releases/download/${VER}/baton-${VER}-linux-amd64.tar.gz"
+          tar xzf baton.tgz
+          sudo mv baton /usr/local/bin/baton
+          baton --help >/dev/null
       # Fixtures from cmd/test-server/seeds.go (Bob / Engineering). sync-test@v4
       # covers sync + grant/revoke idempotency.
       - name: Grant/Revoke group membership
