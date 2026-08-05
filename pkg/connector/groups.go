@@ -8,7 +8,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -28,25 +27,24 @@ func (o *groupBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 	return groupResourceType
 }
 
-func (o *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (o *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	groups, annos, err := o.client.GetGroups(ctx)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, &rs.SyncOpResults{Annotations: annos}, err
 	}
 
-	// Create a slice of resources to hold the user resources
 	var resources []*v2.Resource
 	for _, group := range groups {
 		groupResource, err := parseIntoGroupResource(ctx, &group, parentResourceID)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, &rs.SyncOpResults{Annotations: annos}, err
 		}
 		resources = append(resources, groupResource)
 	}
-	return resources, "", annos, nil
+	return resources, &rs.SyncOpResults{Annotations: annos}, nil
 }
 
-func (o *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (o *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	displayName := fmt.Sprintf("%s group %s", resource.DisplayName, memberEntitlement)
 	descretion := fmt.Sprintf("Member of %s group", resource.DisplayName)
 	entitlements := []*v2.Entitlement{
@@ -59,17 +57,17 @@ func (o *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ 
 		),
 	}
 
-	return entitlements, "", nil, nil
+	return entitlements, &rs.SyncOpResults{}, nil
 }
 
-func (o *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (o *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var grants []*v2.Grant
 	l := ctxzap.Extract(ctx)
 	groupId := resource.Id.Resource
 	members, annos, err := o.client.GetGroupMembers(ctx, groupId)
 	if err != nil {
 		l.Debug("Failed to get group members: ", zap.Error(err))
-		return nil, "", annos, err
+		return nil, &rs.SyncOpResults{Annotations: annos}, err
 	}
 	for _, member := range members {
 		userResourceID := &v2.ResourceId{
@@ -79,11 +77,11 @@ func (o *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		grant := grant.NewGrant(resource, memberEntitlement, userResourceID)
 		grants = append(grants, grant)
 	}
-	return grants, "", nil, nil
+	return grants, &rs.SyncOpResults{Annotations: annos}, nil
 }
 
 func parseIntoGroupResource(_ context.Context, group *client.Group, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
-	profile := map[string]interface{}{
+	profile := map[string]any{
 		fieldName:        group.Name,
 		"id":             group.ID,
 		"UUID":           group.UUID,
@@ -91,11 +89,9 @@ func parseIntoGroupResource(_ context.Context, group *client.Group, parentResour
 		"users_count":    group.UsersCount,
 	}
 
-	groupTraitOptions := []rs.GroupTraitOption{
-		rs.WithGroupProfile(profile),
+	options := []rs.ResourceOption{
+		rs.WithResourceProfile(profile),
 	}
-
-	var options []rs.ResourceOption
 	if parentResourceID != nil {
 		options = append(options, rs.WithParentResourceID(parentResourceID))
 	}
@@ -104,7 +100,7 @@ func parseIntoGroupResource(_ context.Context, group *client.Group, parentResour
 		group.Name,
 		groupResourceType,
 		group.ID,
-		groupTraitOptions,
+		nil,
 		options...,
 	)
 

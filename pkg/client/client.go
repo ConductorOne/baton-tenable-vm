@@ -373,8 +373,8 @@ func (c *TenableVMClient) doRequest(
 	ctx context.Context,
 	method string,
 	endpointUrl string,
-	res interface{},
-	body interface{},
+	res any,
+	body any,
 	reqOpt ...ReqOpt,
 ) (http.Header, annotations.Annotations, error) {
 	var (

@@ -9,14 +9,20 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/conductorone/baton-sdk/pkg/pagination"
-	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
+)
+
+var (
+	_ connectorbuilder.ResourceSyncerV2  = (*userBuilder)(nil)
+	_ connectorbuilder.AccountManagerV2  = (*userBuilder)(nil)
+	_ connectorbuilder.ResourceDeleterV2 = (*userBuilder)(nil)
 )
 
 type userBuilder struct {
@@ -30,49 +36,75 @@ func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 
 // List returns all the users from the database as resource objects.
 // Users include a UserTrait because they are the 'shape' of a standard user.
-func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
-	annos, err := o.connector.cacheUsers(ctx)
+func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, _ resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error) {
+	users, annos, err := o.client.GetUsers(ctx)
 	if err != nil {
-		return nil, "", annos, err
+		return nil, &resource.SyncOpResults{Annotations: annos}, err
 	}
 
-	users := o.connector.cachedUsers
-
-	// Create a slice of resources to hold the user resources
 	var resources []*v2.Resource
 	for _, user := range users {
-		userResource, err := parseIntoUserResource(ctx, user, parentResourceID)
+		userResource, err := parseIntoUserResource(ctx, &user, parentResourceID)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, &resource.SyncOpResults{Annotations: annos}, err
 		}
 		resources = append(resources, userResource)
 	}
-	return resources, "", nil, nil
+	return resources, &resource.SyncOpResults{Annotations: annos}, nil
 }
 
 // Entitlements always returns an empty slice for users.
-func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+func (o *userBuilder) Entitlements(_ context.Context, resourceObj *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	return nil, &resource.SyncOpResults{}, nil
 }
 
-// Grants always returns an empty slice for users since they don't have any entitlements.
-func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+// Grants emits this user's RBAC role grants. Role Grants() returns empty so the
+// connector never buffers the full user set just to invert role→users (same
+// pattern as baton-arctic-wolf).
+//
+// Roles come from GET /users?withRoles=true and List already carries them in the
+// resource profile, so this phase issues no API call at all.
+func (o *userBuilder) Grants(_ context.Context, resourceObj *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
+	roleUUIDs, _ := resource.GetProfileStringValue(resourceObj.GetProfile(), fieldRoleUUIDs)
+	if roleUUIDs == "" {
+		return nil, &resource.SyncOpResults{}, nil
+	}
+
+	var grants []*v2.Grant
+	for _, roleUUID := range strings.Split(roleUUIDs, profileListSeparator) {
+		roleRes := &v2.Resource{Id: &v2.ResourceId{
+			ResourceType: roleResourceType.Id,
+			Resource:     roleUUID,
+		}}
+		grants = append(grants, grant.NewGrant(roleRes, rolePermissionName, resourceObj.GetId()))
+	}
+
+	return grants, &resource.SyncOpResults{}, nil
 }
 
 func parseIntoUserResource(_ context.Context, user *client.User, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	var (
-		userStatus  = v2.UserTrait_Status_STATUS_ENABLED
-		firstName   string
-		lastName    string
-		displayName string
+		resourceStatus = v2.Status_RESOURCE_STATUS_ENABLED
+		firstName      string
+		lastName       string
+		displayName    string
 	)
 
-	profile := map[string]interface{}{
+	profile := map[string]any{
 		fieldUserID: user.ID,
 		fieldUUID:   user.UUID,
 		"username":  user.Username,
 		"email":     user.Email,
+	}
+
+	// Grants() reads the roles back from here instead of re-fetching the user
+	// list once per user.
+	if len(user.RbacRoles) > 0 {
+		roleUUIDs := make([]string, 0, len(user.RbacRoles))
+		for _, role := range user.RbacRoles {
+			roleUUIDs = append(roleUUIDs, role.UUID.String())
+		}
+		profile[fieldRoleUUIDs] = strings.Join(roleUUIDs, profileListSeparator)
 	}
 
 	if user.Name != "" {
@@ -90,12 +122,10 @@ func parseIntoUserResource(_ context.Context, user *client.User, parentResourceI
 	}
 
 	if !user.Enabled {
-		userStatus = v2.UserTrait_Status_STATUS_DISABLED
+		resourceStatus = v2.Status_RESOURCE_STATUS_DISABLED
 	}
 
 	userTraits := []resource.UserTraitOption{
-		resource.WithUserProfile(profile),
-		resource.WithStatus(userStatus),
 		resource.WithEmail(user.Email, true),
 		resource.WithUserLogin(user.Username),
 	}
@@ -110,6 +140,8 @@ func parseIntoUserResource(_ context.Context, user *client.User, parentResourceI
 		userResourceType,
 		user.ID,
 		userTraits,
+		resource.WithResourceProfile(profile),
+		resource.WithResourceStatus(resourceStatus, ""),
 		resource.WithParentResourceID(parentResourceID),
 	)
 	if err != nil {
@@ -204,9 +236,9 @@ func (o *userBuilder) CreateAccount(
 // Tenable needs to transfer a user's ownership of resources before deleting them to avoid orphaned resources.
 // For this reason its common practice to disable the user instead of deleting them.
 // https://developer.tenable.com/reference/users-enabled
-func (o *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
+func (o *userBuilder) Delete(ctx context.Context, resourceID *v2.ResourceId, _ *v2.ResourceId) (annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
-	userID := principal.Resource
+	userID := resourceID.Resource
 
 	updatedUser, err := o.client.DisableUser(ctx, userID)
 	if err != nil {

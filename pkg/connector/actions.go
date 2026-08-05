@@ -67,22 +67,20 @@ var enableAccountActionSchema = &v2.BatonActionSchema{
 	},
 }
 
-func (c *Connector) RegisterActionManager(ctx context.Context) (connectorbuilder.CustomActionManager, error) {
-	l := ctxzap.Extract(ctx)
-	actionManager := actions.NewActionManager(ctx)
-	err := actionManager.RegisterAction(ctx, "disable_account", disableAccountActionSchema, c.disableAccountActionHandler)
-	if err != nil {
-		l.Error("failed to register action", zap.Error(err))
-		return nil, err
+var _ connectorbuilder.GlobalActionProvider = (*Connector)(nil)
+
+// GlobalActions registers the connector's global (non-resource-scoped) actions
+// with the SDK action registry.
+func (c *Connector) GlobalActions(ctx context.Context, registry actions.ActionRegistry) error {
+	if err := registry.Register(ctx, disableAccountActionSchema, c.disableAccountActionHandler); err != nil {
+		return fmt.Errorf("baton-tenable-vm: failed to register %s action: %w", ActionDisableAccount, err)
 	}
 
-	err = actionManager.RegisterAction(ctx, "enable_account", enableAccountActionSchema, c.enableAccountActionHandler)
-	if err != nil {
-		l.Error("failed to register action", zap.Error(err))
-		return nil, err
+	if err := registry.Register(ctx, enableAccountActionSchema, c.enableAccountActionHandler); err != nil {
+		return fmt.Errorf("baton-tenable-vm: failed to register %s action: %w", ActionEnableAccount, err)
 	}
 
-	return actionManager, nil
+	return nil
 }
 
 func (c *Connector) disableAccountActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {

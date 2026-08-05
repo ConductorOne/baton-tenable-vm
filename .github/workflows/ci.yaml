@@ -47,7 +47,7 @@ jobs:
       # enable_account / disable_account actions — Bob starts enabled.
       # Action names match RegisterActionManager (not the enable_user defaults).
       - name: Account status lifecycle
-        uses: ConductorOne/github-workflows/actions/account-status-lifecycle-test@v3
+        uses: ConductorOne/github-workflows/actions/account-status-lifecycle-test@v4
         with:
           connector: ./baton-tenable-vm
           account-id: ${{ vars.TEST_PRINCIPAL }}
