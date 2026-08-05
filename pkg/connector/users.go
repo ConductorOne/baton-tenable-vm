@@ -65,10 +65,6 @@ func (o *userBuilder) Entitlements(_ context.Context, resourceObj *v2.Resource, 
 // Roles come from GET /users?withRoles=true and List already carries them in the
 // resource profile, so this phase issues no API call at all.
 func (o *userBuilder) Grants(_ context.Context, resourceObj *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
-	if resourceObj.GetId().GetResourceType() != userResourceType.Id {
-		return nil, &resource.SyncOpResults{}, nil
-	}
-
 	roleUUIDs, _ := resource.GetProfileStringValue(resourceObj.GetProfile(), fieldRoleUUIDs)
 	if roleUUIDs == "" {
 		return nil, &resource.SyncOpResults{}, nil
