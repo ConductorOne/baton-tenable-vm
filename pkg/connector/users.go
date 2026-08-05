@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -63,36 +62,28 @@ func (o *userBuilder) Entitlements(_ context.Context, resourceObj *v2.Resource, 
 // connector never buffers the full user set just to invert role→users (same
 // pattern as baton-arctic-wolf).
 //
-// Roles come from GET /users?withRoles=true (already used in List). Reusing
-// GetUsers here hits the SDK uhttp GET cache after List — no per-user
-// GetUserDetails round-trip.
-func (o *userBuilder) Grants(ctx context.Context, resourceObj *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
+// Roles come from GET /users?withRoles=true and List already carries them in the
+// resource profile, so this phase issues no API call at all.
+func (o *userBuilder) Grants(_ context.Context, resourceObj *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	if resourceObj.GetId().GetResourceType() != userResourceType.Id {
 		return nil, &resource.SyncOpResults{}, nil
 	}
 
-	users, annos, err := o.client.GetUsers(ctx)
-	if err != nil {
-		return nil, &resource.SyncOpResults{Annotations: annos}, fmt.Errorf("baton-tenable-vm: failed to load users for role grants: %w", err)
+	roleUUIDs, _ := resource.GetProfileStringValue(resourceObj.GetProfile(), fieldRoleUUIDs)
+	if roleUUIDs == "" {
+		return nil, &resource.SyncOpResults{}, nil
 	}
 
-	userID := resourceObj.GetId().GetResource()
 	var grants []*v2.Grant
-	for _, user := range users {
-		if strconv.Itoa(user.ID) != userID {
-			continue
-		}
-		for _, role := range user.RbacRoles {
-			roleRes := &v2.Resource{Id: &v2.ResourceId{
-				ResourceType: roleResourceType.Id,
-				Resource:     role.UUID.String(),
-			}}
-			grants = append(grants, grant.NewGrant(roleRes, rolePermissionName, resourceObj.GetId()))
-		}
-		break
+	for _, roleUUID := range strings.Split(roleUUIDs, profileListSeparator) {
+		roleRes := &v2.Resource{Id: &v2.ResourceId{
+			ResourceType: roleResourceType.Id,
+			Resource:     roleUUID,
+		}}
+		grants = append(grants, grant.NewGrant(roleRes, rolePermissionName, resourceObj.GetId()))
 	}
 
-	return grants, &resource.SyncOpResults{Annotations: annos}, nil
+	return grants, &resource.SyncOpResults{}, nil
 }
 
 func parseIntoUserResource(_ context.Context, user *client.User, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
@@ -108,6 +99,16 @@ func parseIntoUserResource(_ context.Context, user *client.User, parentResourceI
 		fieldUUID:   user.UUID,
 		"username":  user.Username,
 		"email":     user.Email,
+	}
+
+	// Grants() reads the roles back from here instead of re-fetching the user
+	// list once per user.
+	if len(user.RbacRoles) > 0 {
+		roleUUIDs := make([]string, 0, len(user.RbacRoles))
+		for _, role := range user.RbacRoles {
+			roleUUIDs = append(roleUUIDs, role.UUID.String())
+		}
+		profile[fieldRoleUUIDs] = strings.Join(roleUUIDs, profileListSeparator)
 	}
 
 	if user.Name != "" {

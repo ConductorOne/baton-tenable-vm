@@ -17,10 +17,14 @@ const symbols = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 // Field keys shared across resource profiles, action schemas, and log fields.
 const (
-	fieldName    = "name"
-	fieldUUID    = "uuid"
-	fieldUserID  = "user_id"
-	fieldSuccess = "success"
+	fieldName            = "name"
+	fieldUUID            = "uuid"
+	fieldUserID          = "user_id"
+	fieldSuccess         = "success"
+	fieldRoleUUIDs       = "role_uuids"
+	fieldUserSubjectIDs  = "user_subject_ids"
+	fieldGroupSubjectIDs = "group_subject_ids"
+	profileListSeparator = ","
 )
 
 func isPasswordValid(password string) bool {
@@ -66,26 +70,24 @@ func generateCredentials(credentialOptions *v2.LocalCredentialOptions) (string, 
 	return "", errors.New("failed to generate a valid password after 20 attempts")
 }
 
-func getUserResourceId(uuid string, usersByUUID map[string]client.User) (*v2.ResourceId, error) {
+// getUserResourceId translates a Tenable user UUID into the numeric ID used as
+// the synced user resource ID.
+func getUserResourceId(uuid string, usersByUUID map[string]client.User) (string, error) {
 	user, ok := usersByUUID[uuid]
 	if !ok {
-		return nil, fmt.Errorf("user not found, unknown UUID: %s", uuid)
+		return "", fmt.Errorf("user not found, unknown UUID: %s", uuid)
 	}
-	return &v2.ResourceId{
-		ResourceType: userResourceType.Id,
-		Resource:     strconv.Itoa(user.ID),
-	}, nil
+	return strconv.Itoa(user.ID), nil
 }
 
-func getGroupResourceId(uuid string, groupsByUUID map[string]string) (*v2.ResourceId, error) {
+// getGroupResourceId translates a Tenable group UUID into the numeric ID used as
+// the synced group resource ID.
+func getGroupResourceId(uuid string, groupsByUUID map[string]string) (string, error) {
 	groupID, ok := groupsByUUID[uuid]
 	if !ok {
-		return nil, fmt.Errorf("group not found, unknown UUID: %s", uuid)
+		return "", fmt.Errorf("group not found, unknown UUID: %s", uuid)
 	}
-	return &v2.ResourceId{
-		ResourceType: groupResourceType.Id,
-		Resource:     groupID,
-	}, nil
+	return groupID, nil
 }
 
 // extractActionUserID accepts either a number (IntField schema) or a string

@@ -14,8 +14,6 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 	"github.com/google/uuid"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 )
 
 const (
@@ -34,66 +32,19 @@ func (o *permissionBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 }
 
 func (o *permissionBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	permissions, annos, err := o.client.ListPermissions(ctx)
-	if err != nil {
-		return nil, &rs.SyncOpResults{Annotations: annos}, fmt.Errorf("baton-tenable-vm: failed to load permissions: %w", err)
-	}
-	var resources []*v2.Resource
-	for _, permission := range permissions {
-		permissionResource, err := parseIntoPermissionResource(&permission, parentResourceID)
-		if err != nil {
-			return nil, &rs.SyncOpResults{Annotations: annos}, err
-		}
-		resources = append(resources, permissionResource)
-	}
-	return resources, &rs.SyncOpResults{Annotations: annos}, nil
-}
-
-func (o *permissionBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
-	displayName := fmt.Sprintf("%s permission %s", resource.DisplayName, assignedEntitlement)
-	description := fmt.Sprintf("Permission %s assigned to subject", resource.DisplayName)
-	entitlements := []*v2.Entitlement{
-		entitlement.NewAssignmentEntitlement(
-			resource,
-			assignedEntitlement,
-			entitlement.WithGrantableTo(userResourceType, groupResourceType),
-			entitlement.WithDescription(description),
-			entitlement.WithDisplayName(displayName),
-		),
-	}
-
-	return entitlements, &rs.SyncOpResults{}, nil
-}
-
-func (o *permissionBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	var grants []*v2.Grant
-	l := ctxzap.Extract(ctx)
 	outputAnnos := annotations.New()
-	permissionUUID := resource.Id.Resource
 
-	// Tenable list permissions includes subjects (docs + test-server). Reuse
-	// ListPermissions so Grants hits the same URL as List and the uhttp GET
-	// cache — avoid N GetPermissionDetails calls with unique URLs.
 	permissions, annos, err := o.client.ListPermissions(ctx)
 	outputAnnos.Merge(annos...)
 	if err != nil {
 		return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to load permissions: %w", err)
 	}
-	var matched client.Permission
-	found := false
-	for _, p := range permissions {
-		if p.UUID.String() == permissionUUID {
-			matched = p
-			found = true
-			break
-		}
-	}
-	if !found {
-		return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: permission not found: %s", permissionUUID)
-	}
 
-	// Subjects only carry UUIDs; synced user/group resource IDs are numeric.
-	// Resolve via GetUsers/GetGroups (uhttp GET cache covers repeat Grants calls).
+	// Subjects only carry UUIDs while the synced user/group resource IDs are
+	// numeric, so the whole user and group lists are needed to translate them.
+	// Resolving here once per sync keeps Grants() free of API calls: the SDK
+	// GET cache drops entries above BATON_HTTP_CACHE_MAX_SIZE (5MB by default),
+	// so a per-permission lookup re-downloads the user list on large tenants.
 	users, annos, err := o.client.GetUsers(ctx)
 	outputAnnos.Merge(annos...)
 	if err != nil {
@@ -114,39 +65,98 @@ func (o *permissionBuilder) Grants(ctx context.Context, resource *v2.Resource, _
 		groupsByUUID[group.UUID] = strconv.Itoa(group.ID)
 	}
 
-	for _, subject := range matched.Subjects {
-		switch subject.Type {
-		case subjectTypeUser:
-			userResourceID, err := getUserResourceId(subject.UUID.String(), usersByUUID)
-			if err != nil {
-				l.Debug("Failed to resolve permission user subject", zap.Error(err))
-				return nil, &rs.SyncOpResults{Annotations: outputAnnos}, err
-			}
+	var resources []*v2.Resource
+	for _, permission := range permissions {
+		permissionResource, err := parseIntoPermissionResource(&permission, parentResourceID, usersByUUID, groupsByUUID)
+		if err != nil {
+			return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to build permission %s: %w", permission.UUID, err)
+		}
+		resources = append(resources, permissionResource)
+	}
+	return resources, &rs.SyncOpResults{Annotations: outputAnnos}, nil
+}
+
+func (o *permissionBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	displayName := fmt.Sprintf("%s permission %s", resource.DisplayName, assignedEntitlement)
+	description := fmt.Sprintf("Permission %s assigned to subject", resource.DisplayName)
+	entitlements := []*v2.Entitlement{
+		entitlement.NewAssignmentEntitlement(
+			resource,
+			assignedEntitlement,
+			entitlement.WithGrantableTo(userResourceType, groupResourceType),
+			entitlement.WithDescription(description),
+			entitlement.WithDisplayName(displayName),
+		),
+	}
+
+	return entitlements, &rs.SyncOpResults{}, nil
+}
+
+// Grants emits one grant per subject of the permission. List() already resolved
+// the subject UUIDs into synced resource IDs and stored them on the resource, so
+// this phase issues no API call at all.
+func (o *permissionBuilder) Grants(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	var grants []*v2.Grant
+	profile := resource.GetProfile()
+
+	if userIDs, ok := rs.GetProfileStringValue(profile, fieldUserSubjectIDs); ok {
+		for _, userID := range strings.Split(userIDs, profileListSeparator) {
+			userResourceID := &v2.ResourceId{ResourceType: userResourceType.Id, Resource: userID}
 			grants = append(grants, grant.NewGrant(resource, assignedEntitlement, userResourceID))
-		case subjectTypeGroup:
-			groupResourceID, err := getGroupResourceId(subject.UUID.String(), groupsByUUID)
-			if err != nil {
-				l.Debug("Failed to resolve permission group subject", zap.Error(err))
-				return nil, &rs.SyncOpResults{Annotations: outputAnnos}, err
-			}
+		}
+	}
+
+	if groupIDs, ok := rs.GetProfileStringValue(profile, fieldGroupSubjectIDs); ok {
+		for _, groupID := range strings.Split(groupIDs, profileListSeparator) {
+			groupResourceID := &v2.ResourceId{ResourceType: groupResourceType.Id, Resource: groupID}
 			expandableMsg := &v2.GrantExpandable{
 				EntitlementIds: []string{
-					fmt.Sprintf("group:%s:member", groupResourceID.Resource),
+					fmt.Sprintf("group:%s:member", groupID),
 				},
 			}
 			grants = append(grants, grant.NewGrant(resource, assignedEntitlement, groupResourceID,
 				grant.WithAnnotation(expandableMsg, &v2.GrantImmutable{})))
 		}
 	}
-	return grants, &rs.SyncOpResults{Annotations: outputAnnos}, nil
+
+	return grants, &rs.SyncOpResults{}, nil
 }
 
-func parseIntoPermissionResource(permission *client.Permission, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func parseIntoPermissionResource(
+	permission *client.Permission,
+	parentResourceID *v2.ResourceId,
+	usersByUUID map[string]client.User,
+	groupsByUUID map[string]string,
+) (*v2.Resource, error) {
 	actionList := strings.Join(permission.Actions, " ")
 	profile := map[string]any{
 		fieldName: permission.Name,
 		fieldUUID: permission.UUID.String(),
 		"actions": actionList,
+	}
+
+	var userIDs, groupIDs []string
+	for _, subject := range permission.Subjects {
+		switch subject.Type {
+		case subjectTypeUser:
+			userID, err := getUserResourceId(subject.UUID.String(), usersByUUID)
+			if err != nil {
+				return nil, err
+			}
+			userIDs = append(userIDs, userID)
+		case subjectTypeGroup:
+			groupID, err := getGroupResourceId(subject.UUID.String(), groupsByUUID)
+			if err != nil {
+				return nil, err
+			}
+			groupIDs = append(groupIDs, groupID)
+		}
+	}
+	if len(userIDs) > 0 {
+		profile[fieldUserSubjectIDs] = strings.Join(userIDs, profileListSeparator)
+	}
+	if len(groupIDs) > 0 {
+		profile[fieldGroupSubjectIDs] = strings.Join(groupIDs, profileListSeparator)
 	}
 
 	options := []rs.ResourceOption{
