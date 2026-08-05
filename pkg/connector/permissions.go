@@ -71,11 +71,25 @@ func (o *permissionBuilder) Grants(ctx context.Context, resource *v2.Resource, _
 	outputAnnos := annotations.New()
 	permissionUUID := resource.Id.Resource
 
-	// Resource-side: subjects live on the permission object. Emitting from
-	// user/group side is not viable — principals have no permissions list.
-	permission, err := o.client.GetPermissionDetails(ctx, permissionUUID)
+	// Tenable list permissions includes subjects (docs + test-server). Reuse
+	// ListPermissions so Grants hits the same URL as List and the uhttp GET
+	// cache — avoid N GetPermissionDetails calls with unique URLs.
+	permissions, annos, err := o.client.ListPermissions(ctx)
+	outputAnnos.Merge(annos...)
 	if err != nil {
-		return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to get permission details: %w", err)
+		return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to load permissions: %w", err)
+	}
+	var matched client.Permission
+	found := false
+	for _, p := range permissions {
+		if p.UUID.String() == permissionUUID {
+			matched = p
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: permission not found: %s", permissionUUID)
 	}
 
 	// Subjects only carry UUIDs; synced user/group resource IDs are numeric.
@@ -100,7 +114,7 @@ func (o *permissionBuilder) Grants(ctx context.Context, resource *v2.Resource, _
 		groupsByUUID[group.UUID] = strconv.Itoa(group.ID)
 	}
 
-	for _, subject := range permission.Subjects {
+	for _, subject := range matched.Subjects {
 		switch subject.Type {
 		case subjectTypeUser:
 			userResourceID, err := getUserResourceId(subject.UUID.String(), usersByUUID)

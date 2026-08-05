@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,26 +62,37 @@ func (o *userBuilder) Entitlements(_ context.Context, resourceObj *v2.Resource, 
 // Grants emits this user's RBAC role grants. Role Grants() returns empty so the
 // connector never buffers the full user set just to invert role→users (same
 // pattern as baton-arctic-wolf).
+//
+// Roles come from GET /users?withRoles=true (already used in List). Reusing
+// GetUsers here hits the SDK uhttp GET cache after List — no per-user
+// GetUserDetails round-trip.
 func (o *userBuilder) Grants(ctx context.Context, resourceObj *v2.Resource, _ resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	if resourceObj.GetId().GetResourceType() != userResourceType.Id {
 		return nil, &resource.SyncOpResults{}, nil
 	}
 
-	user, err := o.client.GetUserDetails(ctx, resourceObj.GetId().GetResource())
+	users, annos, err := o.client.GetUsers(ctx)
 	if err != nil {
-		return nil, &resource.SyncOpResults{}, fmt.Errorf("baton-tenable-vm: failed to get user details: %w", err)
+		return nil, &resource.SyncOpResults{Annotations: annos}, fmt.Errorf("baton-tenable-vm: failed to load users for role grants: %w", err)
 	}
 
+	userID := resourceObj.GetId().GetResource()
 	var grants []*v2.Grant
-	for _, role := range user.RbacRoles {
-		roleRes := &v2.Resource{Id: &v2.ResourceId{
-			ResourceType: roleResourceType.Id,
-			Resource:     role.UUID.String(),
-		}}
-		grants = append(grants, grant.NewGrant(roleRes, rolePermissionName, resourceObj.GetId()))
+	for _, user := range users {
+		if strconv.Itoa(user.ID) != userID {
+			continue
+		}
+		for _, role := range user.RbacRoles {
+			roleRes := &v2.Resource{Id: &v2.ResourceId{
+				ResourceType: roleResourceType.Id,
+				Resource:     role.UUID.String(),
+			}}
+			grants = append(grants, grant.NewGrant(roleRes, rolePermissionName, resourceObj.GetId()))
+		}
+		break
 	}
 
-	return grants, &resource.SyncOpResults{}, nil
+	return grants, &resource.SyncOpResults{Annotations: annos}, nil
 }
 
 func parseIntoUserResource(_ context.Context, user *client.User, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
