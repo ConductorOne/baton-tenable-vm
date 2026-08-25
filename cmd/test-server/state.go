@@ -9,13 +9,20 @@ import (
 // Doc URL: https://developer.tenable.com/reference/users-list
 // enabled is intentionally NOT omitempty so disabled users serialize as false.
 type User struct {
-	UUID          string     `json:"uuid"`
-	ID            int        `json:"id"`
-	Username      string     `json:"username"`
-	Email         string     `json:"email"`
-	Name          string     `json:"name"`
-	Permissions   int        `json:"permissions"`
-	Enabled       bool       `json:"enabled"`
+	UUID        string `json:"uuid"`
+	ID          int    `json:"id"`
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	Permissions int    `json:"permissions"`
+	Enabled     bool   `json:"enabled"`
+	// LastLogin is a timestamp in Unix MILLISECONDS per the OpenAPI schema
+	// ("A timestamp in Unix milliseconds indicating the last time the user
+	// successfully logged in to the Tenable Vulnerability Management user
+	// interface"). The field is not in the user object's `required` set, so
+	// omitempty models a never-logged-in user as an absent field. That is the
+	// case the connector guards with `if user.LastLogin > 0`.
+	LastLogin     int64      `json:"lastlogin,omitempty"`
 	ContainerUUID string     `json:"container_uuid"`
 	GroupUUIDs    []string   `json:"group_uuids,omitempty"`
 	RbacRoles     []RbacRole `json:"rbac_roles,omitempty"`
@@ -36,6 +43,16 @@ type Group struct {
 	Name          string `json:"name"`
 	UserCount     int    `json:"user_count"`
 	ContainerUUID string `json:"container_uuid"`
+	// Immutable and MembershipFixed are documented as "Only present on the
+	// default All Users group" — the group cannot be modified, and users cannot
+	// be added to or removed from it.
+	//
+	// omitempty is deliberate here and is the exception to the usual rule that
+	// booleans must serialize false: the schema says these fields are absent on
+	// every other group, so omitting them replicates the documented response
+	// rather than inventing `false` where the API sends nothing.
+	Immutable       bool `json:"immutable,omitempty"`
+	MembershipFixed bool `json:"membership_fixed,omitempty"`
 }
 
 // Role mirrors the Tenable role object returned by GET /access-control/v1/roles.
@@ -248,6 +265,20 @@ func (s *State) GetGroupByID(id int) (Group, bool) {
 		return Group{}, false
 	}
 	return *g, true
+}
+
+// GroupMembershipFixed reports whether the group rejects membership changes.
+// Returns (fixed, found). The real API refuses add/remove on the default
+// All Users group; the connector currently has no guard for this, so the mock
+// enforces it to keep that path honest.
+func (s *State) GroupMembershipFixed(groupID int) (bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, ok := s.groupsByID[groupID]
+	if !ok {
+		return false, false
+	}
+	return g.MembershipFixed, true
 }
 
 func (s *State) ListGroupMembers(groupID int) ([]User, bool) {

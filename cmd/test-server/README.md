@@ -32,10 +32,22 @@ developer docs.
 
 ## Seed data
 
-5 users (1 disabled, 1 with no extra groups), 4 groups including the
-immutable `All Users` group, 4 roles (3 STANDARD + 1 CUSTOM, with overlapping
-assignments), 2 permissions (one with User + UserGroup subjects). See
-`seeds.go`.
+See `seeds.go` for the canonical list.
+
+**6 users** — 1 disabled (`enabled:false`), 1 in no groups beyond `All Users`,
+1 with **no `lastlogin`** (models a user who has never signed in, since the
+field is not in the user object's `required` set), and 1 with **no RBAC roles**.
+
+**5 groups** — the default `All Users` group, which carries `immutable` and
+`membership_fixed` and refuses membership changes; three with overlapping
+membership; and one deliberately **empty**.
+
+**4 roles** — 3 `STANDARD` + 1 `CUSTOM`, with overlapping assignments.
+
+**4 permissions**, covering all four documented `PermissionSubject.type`
+values: one with `User` + `UserGroup`, one with `User`, one with **`AllUsers`**,
+and one combining **`AllAdmins`** with a `User`. The last two exist so the
+container-wide subject types are reachable — see the drift note below.
 
 ## Running locally
 
@@ -82,3 +94,22 @@ These are intentional: the mock follows the **docs**, not the connector
    `json:"users_count"`, so the profile field stays `0` against a
    docs-faithful response. Track as a follow-up — do not "fix" the mock
    to match the connector.
+
+2. **Permission subjects `AllUsers` and `AllAdmins` are dropped.** The
+   `PermissionSubject.type` enum
+   ([permission-create](https://developer.tenable.com/reference/io-v3-access-control-permission-create))
+   declares four values: `User`, `UserGroup`, `AllUsers`, `AllAdmins`. The
+   connector's subject switch handles only the first two and has no
+   `default`, so a permission scoped to every user in the container syncs
+   with an entitlement and zero grants, silently. Seeded here deliberately;
+   pinned by `TestParseIntoPermissionResource_DropsContainerWideSubjects`.
+   Do not remove these seeds to make the suite quieter.
+
+3. **`All Users` membership changes are refused.** `membership_fixed` is
+   documented as "users cannot be added to or removed from this group", so
+   the mock rejects add/remove against group 0. The endpoint
+   ([groups-add-user](https://developer.tenable.com/reference/groups-add-user))
+   does not document which status that refusal uses, so the mock returns
+   `403` — the only refusal code the endpoint declares. The connector has no
+   guard for this case; nothing depends on it today, but a future change that
+   targets `All Users` will meet the same rejection the real API describes.

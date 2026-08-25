@@ -2,7 +2,7 @@
 
 # `baton-tenable-vm` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-tenable-vm.svg)](https://pkg.go.dev/github.com/conductorone/baton-tenable-vm) ![main ci](https://github.com/conductorone/baton-tenable-vm/actions/workflows/main.yaml/badge.svg)
 
-`baton-tenable-vm` is a connector for built using the [Baton SDK](https://github.com/conductorone/baton-sdk).
+`baton-tenable-vm` is a connector for [Tenable Vulnerability Management](https://www.tenable.com/products/vulnerability-management) built using the [Baton SDK](https://github.com/conductorone/baton-sdk).
 
 Check out [Baton](https://github.com/conductorone/baton) to learn more the project in general.
 
@@ -19,7 +19,7 @@ baton resources
 ## docker
 
 ```
-docker run --rm -v $(pwd):/out -e BATON_DOMAIN_URL=domain_url -e BATON_API_KEY=apiKey -e BATON_USERNAME=username ghcr.io/conductorone/baton-tenable-vm:latest -f "/out/sync.c1z"
+docker run --rm -v $(pwd):/out -e BATON_ACCESS_KEY=accessKey -e BATON_SECRET_KEY=secretKey ghcr.io/conductorone/baton-tenable-vm:latest -f "/out/sync.c1z"
 docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
 ```
 
@@ -40,6 +40,7 @@ baton resources
 - Users
 - Groups
 - Roles
+- Permissions
 
 # Contributing, Support and Issues
 

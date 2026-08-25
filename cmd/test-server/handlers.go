@@ -212,6 +212,15 @@ func (h *handlers) addGroupMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid user id")
 		return
 	}
+	// The groups schema documents membership_fixed as "users cannot be added to
+	// or removed from this group", but groups-add-user does not document which
+	// status that refusal uses. 403 is the only refusal code the endpoint
+	// declares (200/401/403/404/429/500), so it is used here rather than
+	// inventing an undocumented one.
+	if fixed, found := h.state.GroupMembershipFixed(groupID); found && fixed {
+		writeError(w, http.StatusForbidden, "Forbidden", "users cannot be added to this group")
+		return
+	}
 	_, ok := h.state.AddGroupMember(groupID, userID)
 	if !ok {
 		writeError(w, http.StatusNotFound, "Not Found", "group or user not found")
@@ -230,6 +239,12 @@ func (h *handlers) removeGroupMember(w http.ResponseWriter, r *http.Request) {
 	userID, err := strconv.Atoi(r.PathValue("userId"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Bad Request", "invalid user id")
+		return
+	}
+	// See the note on addGroupMember: 403 is the documented refusal code for
+	// this endpoint pair; the All Users case itself is not spelled out.
+	if fixed, found := h.state.GroupMembershipFixed(groupID); found && fixed {
+		writeError(w, http.StatusForbidden, "Forbidden", "users cannot be removed from this group")
 		return
 	}
 	_, ok := h.state.RemoveGroupMember(groupID, userID)
