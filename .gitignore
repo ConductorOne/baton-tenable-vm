@@ -15,12 +15,3 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 dist/
-
-# Local credentials — never commit
-.env
-.env.*
-!.env.example
-
-# Local QA artifacts (browser automation profiles, screenshot evidence)
-.playwright-mcp/
-.test-evidence/
