@@ -19,7 +19,7 @@ baton resources
 ## docker
 
 ```
-docker run --rm -v $(pwd):/out -e BATON_ACCESS_KEY=accessKey -e BATON_SECRET_KEY=secretKey ghcr.io/conductorone/baton-tenable-vm:latest -f "/out/sync.c1z"
+docker run --rm -v $(pwd):/out -e BATON_ACCESS_KEY=accessKey -e BATON_SECRET_KEY=secretKey public.ecr.aws/conductorone/baton-tenable-vm:latest -f "/out/sync.c1z"
 docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
 ```
 
