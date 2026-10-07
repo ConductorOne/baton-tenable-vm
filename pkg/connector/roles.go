@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -18,6 +19,8 @@ import (
 const (
 	rolePermissionName = "assigned"
 	BasicUserRole      = 16
+	basicRoleName      = "Basic"
+	roleTypeStandard   = "STANDARD"
 )
 
 type roleBuilder struct {
@@ -162,27 +165,33 @@ func (rb *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (
 		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 	}
 
-	updateUser := client.UserUpdateReqBody{
-		Permissions: BasicUserRole,
-	}
-
-	updatedUser, err := rb.client.UpdateUser(ctx, userId, updateUser)
+	basicRoleUUID, err := rb.basicRoleUUID(ctx)
 	if err != nil {
-		l.Debug("Error while updating user role",
-			zap.String("role id", roleId),
-			zap.Any("user uuid", user.UUID),
-			zap.Error(err))
 		return nil, err
 	}
+	if roleId == basicRoleUUID {
+		return nil, fmt.Errorf("baton-tenable-vm: cannot revoke the %s role, every user must hold exactly one role", basicRoleName)
+	}
 
-	l.Debug("User updated successfully",
-		zap.String("Name", updatedUser.Name),
-		zap.String("Email", updatedUser.Email),
-		zap.Int("Permissions", updatedUser.Permissions),
-		zap.Bool("Name", updatedUser.Enabled),
-	)
+	_, err = rb.client.UpdateUserRoles(ctx, user.UUID, basicRoleUUID)
+	if err != nil {
+		return nil, fmt.Errorf("baton-tenable-vm: revoke role: %w", err)
+	}
 
 	return nil, nil
+}
+
+func (rb *roleBuilder) basicRoleUUID(ctx context.Context) (string, error) {
+	roles, _, err := rb.client.GetRoles(ctx)
+	if err != nil {
+		return "", fmt.Errorf("baton-tenable-vm: list roles: %w", err)
+	}
+	for _, role := range roles {
+		if role.Type == roleTypeStandard && role.Name == basicRoleName {
+			return role.UUID.String(), nil
+		}
+	}
+	return "", fmt.Errorf("baton-tenable-vm: built-in %s role not found", basicRoleName)
 }
 
 func newRoleBuilder(c *client.TenableVMClient, conn *Connector) *roleBuilder {
