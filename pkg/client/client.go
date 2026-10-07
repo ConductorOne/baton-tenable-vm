@@ -127,21 +127,6 @@ func (c *TenableVMClient) GetUserRoles(ctx context.Context, userUUID string) (*U
 	return &userRoles, nil
 }
 
-func (c *TenableVMClient) UpdateUser(ctx context.Context, userId string, body UserUpdateReqBody) (*User, error) {
-	var user User
-
-	queryUrl, err := url.JoinPath(c.baseURL, fmt.Sprintf(UserPath, userId))
-	if err != nil {
-		return nil, fmt.Errorf("error creating url: %w", err)
-	}
-	_, _, err = c.doRequest(ctx, http.MethodPut, queryUrl, &user, body)
-	if err != nil {
-		return nil, fmt.Errorf("error updating user role: %w", err)
-	}
-
-	return &user, nil
-}
-
 func (c *TenableVMClient) UpdateUserRoles(ctx context.Context, userUUID string, roleUUID string) (*UserRole, error) {
 	var userRoles UserRole
 

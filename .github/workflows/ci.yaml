@@ -44,7 +44,7 @@ jobs:
           baton-entitlement: ${{ vars.TEST_ENTITLEMENT_GROUP }}
           baton-principal: ${{ vars.TEST_PRINCIPAL }}
           baton-principal-type: ${{ vars.TEST_PRINCIPAL_TYPE }}
-      # Bob (1002) / Administrator role from seeds.go.
+      # Grant/revoke Administrator on Bob (1002), fixtures from seeds.go.
       - name: Grant/Revoke role
         uses: ConductorOne/github-workflows/actions/sync-test@v4
         with:
