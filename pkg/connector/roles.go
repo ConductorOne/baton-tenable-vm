@@ -14,6 +14,8 @@ import (
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -170,7 +172,7 @@ func (rb *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (
 		return nil, err
 	}
 	if roleId == basicRoleUUID {
-		return nil, fmt.Errorf("baton-tenable-vm: cannot revoke the %s role, every user must hold exactly one role", basicRoleName)
+		return nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: cannot revoke the %s role, every user must hold exactly one role", basicRoleName)
 	}
 
 	_, err = rb.client.UpdateUserRoles(ctx, user.UUID, basicRoleUUID)
@@ -181,6 +183,11 @@ func (rb *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (
 	return nil, nil
 }
 
+// basicRoleUUID finds the Tenable-provided Basic role by name and type. Role
+// UUIDs are per-container and the roles list exposes no stabler key; the
+// legacy permissions=16 lives on the user, not the role.
+// https://docs.tenable.com/vulnerability-management/Content/Settings/access-control/TenableRolePrivileges.htm
+// https://developer.tenable.com/reference/access-control-roles-list
 func (rb *roleBuilder) basicRoleUUID(ctx context.Context) (string, error) {
 	roles, _, err := rb.client.GetRoles(ctx)
 	if err != nil {
