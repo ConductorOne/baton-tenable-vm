@@ -135,7 +135,7 @@ func (c *TenableVMClient) UpdateUserRoles(ctx context.Context, userUUID string, 
 		return nil, fmt.Errorf("error creating url: %w", err)
 	}
 	body := UserRoleReqBody{RolesUUIDs: []string{roleUUID}}
-	_, _, err = c.doRequest(ctx, http.MethodPut, queryUrl, userRoles, body)
+	_, _, err = c.doRequest(ctx, http.MethodPut, queryUrl, &userRoles, body)
 	if err != nil {
 		return nil, fmt.Errorf("error updating user role: %w", err)
 	}
