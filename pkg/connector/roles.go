@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -13,11 +14,15 @@ import (
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
 	rolePermissionName = "assigned"
 	BasicUserRole      = 16
+	basicRoleName      = "Basic"
+	roleTypeStandard   = "STANDARD"
 )
 
 type roleBuilder struct {
@@ -105,13 +110,13 @@ func (rb *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 	user, err := rb.client.GetUserDetails(ctx, userId)
 	if err != nil {
 		l.Debug("Error while getting user details", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user details: %w", err)
 	}
 	userRoles, err := rb.client.GetUserRoles(ctx, user.UUID)
 
 	if err != nil {
 		l.Debug("Error while getting user roles", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user roles: %w", err)
 	}
 
 	if slices.Contains(userRoles.RolesUUID, roleId) {
@@ -128,7 +133,7 @@ func (rb *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 			zap.String("role id", roleId),
 			zap.Any("user uuid", user.UUID),
 			zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: grant role: %w", err)
 	}
 
 	err = rb.connector.reEnableUserIfNeeded(ctx, user, "role")
@@ -149,40 +154,51 @@ func (rb *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (
 	user, err := rb.client.GetUserDetails(ctx, userId)
 	if err != nil {
 		l.Debug("Error while getting user details", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user details: %w", err)
 	}
 	userRoles, err := rb.client.GetUserRoles(ctx, user.UUID)
 
 	if err != nil {
 		l.Debug("Error while getting user roles", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user roles: %w", err)
 	}
 
 	if !slices.Contains(userRoles.RolesUUID, roleId) {
 		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 	}
 
-	updateUser := client.UserUpdateReqBody{
-		Permissions: BasicUserRole,
-	}
-
-	updatedUser, err := rb.client.UpdateUser(ctx, userId, updateUser)
+	basicRoleUUID, err := rb.basicRoleUUID(ctx)
 	if err != nil {
-		l.Debug("Error while updating user role",
-			zap.String("role id", roleId),
-			zap.Any("user uuid", user.UUID),
-			zap.Error(err))
 		return nil, err
 	}
+	if roleId == basicRoleUUID {
+		return nil, status.Errorf(codes.FailedPrecondition, "baton-tenable-vm: cannot revoke the %s role, every user must hold exactly one role", basicRoleName)
+	}
 
-	l.Debug("User updated successfully",
-		zap.String("Name", updatedUser.Name),
-		zap.String("Email", updatedUser.Email),
-		zap.Int("Permissions", updatedUser.Permissions),
-		zap.Bool("Name", updatedUser.Enabled),
-	)
+	_, err = rb.client.UpdateUserRoles(ctx, user.UUID, basicRoleUUID)
+	if err != nil {
+		return nil, fmt.Errorf("baton-tenable-vm: revoke role: %w", err)
+	}
 
 	return nil, nil
+}
+
+// basicRoleUUID finds the Tenable-provided Basic role by name and type. Role
+// UUIDs are per-container and the roles list exposes no stabler key; the
+// legacy permissions=16 lives on the user, not the role.
+// https://docs.tenable.com/vulnerability-management/Content/Settings/access-control/TenableRolePrivileges.htm
+// https://developer.tenable.com/reference/access-control-roles-list
+func (rb *roleBuilder) basicRoleUUID(ctx context.Context) (string, error) {
+	roles, _, err := rb.client.GetRoles(ctx)
+	if err != nil {
+		return "", fmt.Errorf("baton-tenable-vm: list roles: %w", err)
+	}
+	for _, role := range roles {
+		if role.Type == roleTypeStandard && role.Name == basicRoleName {
+			return role.UUID.String(), nil
+		}
+	}
+	return "", fmt.Errorf("baton-tenable-vm: built-in %s role not found", basicRoleName)
 }
 
 func newRoleBuilder(c *client.TenableVMClient, conn *Connector) *roleBuilder {

@@ -86,7 +86,7 @@ func (c *Connector) reEnableUserIfNeeded(ctx context.Context, user *client.User,
 		_, err := c.client.EnableUser(ctx, userId)
 		if err != nil {
 			l.Error("Error while re-enabling user", zap.Error(err), zap.String(fieldUserID, userId))
-			return fmt.Errorf("%s granted but failed to re-enable user: %w", operationType, err)
+			return fmt.Errorf("baton-tenable-vm: %s granted but failed to re-enable user: %w", operationType, err)
 		}
 	}
 	return nil
