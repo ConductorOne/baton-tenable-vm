@@ -110,13 +110,13 @@ func (rb *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 	user, err := rb.client.GetUserDetails(ctx, userId)
 	if err != nil {
 		l.Debug("Error while getting user details", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user details: %w", err)
 	}
 	userRoles, err := rb.client.GetUserRoles(ctx, user.UUID)
 
 	if err != nil {
 		l.Debug("Error while getting user roles", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user roles: %w", err)
 	}
 
 	if slices.Contains(userRoles.RolesUUID, roleId) {
@@ -133,7 +133,7 @@ func (rb *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 			zap.String("role id", roleId),
 			zap.Any("user uuid", user.UUID),
 			zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: grant role: %w", err)
 	}
 
 	err = rb.connector.reEnableUserIfNeeded(ctx, user, "role")
@@ -154,13 +154,13 @@ func (rb *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (
 	user, err := rb.client.GetUserDetails(ctx, userId)
 	if err != nil {
 		l.Debug("Error while getting user details", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user details: %w", err)
 	}
 	userRoles, err := rb.client.GetUserRoles(ctx, user.UUID)
 
 	if err != nil {
 		l.Debug("Error while getting user roles", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("baton-tenable-vm: get user roles: %w", err)
 	}
 
 	if !slices.Contains(userRoles.RolesUUID, roleId) {
