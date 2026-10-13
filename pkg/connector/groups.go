@@ -130,7 +130,7 @@ func (g *groupBuilder) Grant(
 			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
-		return annos, err
+		return annos, fmt.Errorf("baton-tenable-vm: get group members: %w", err)
 	}
 
 	for _, member := range members {
@@ -191,7 +191,7 @@ func (g *groupBuilder) Revoke(
 			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
-		return annos, err
+		return annos, fmt.Errorf("baton-tenable-vm: get group members: %w", err)
 	}
 
 	isMember := false
