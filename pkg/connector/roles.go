@@ -184,10 +184,9 @@ func (rb *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (
 }
 
 // basicRoleUUID finds the Tenable-provided Basic role by name and type. Role
-// UUIDs are per-container and the roles list exposes no stabler key; the
-// legacy permissions=16 lives on the user, not the role. Basic, not the lower
-// Read-Only role, is the revoke floor on purpose: it is what revoke wrote before
-// (permissions=16) and what CreateAccount assigns.
+// UUIDs are per-container and the legacy permissions=16 lives on the user, so
+// there is no stabler key. Basic, not the lower Read-Only role, is the revoke
+// floor on purpose: it is what revoke wrote before and what CreateAccount assigns.
 // https://docs.tenable.com/vulnerability-management/Content/Settings/access-control/TenableRolePrivileges.htm
 // https://developer.tenable.com/reference/access-control-roles-list
 func (rb *roleBuilder) basicRoleUUID(ctx context.Context) (string, error) {
