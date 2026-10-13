@@ -155,14 +155,14 @@ func (g *groupBuilder) Grant(
 			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
-		return nil, fmt.Errorf("baton-tenable: failed to add user to group: %w", err)
+		return nil, fmt.Errorf("baton-tenable-vm: failed to add user to group: %w", err)
 	}
 
 	if g.connector.enableOnProvision {
 		user, err := g.client.GetUserDetails(ctx, userId)
 		if err != nil {
 			logger.Debug("Failed to get user: ", zap.Error(err), zap.String(fieldUserID, userId))
-			return nil, fmt.Errorf("baton-tenable: group membership granted but failed to get user status: %w", err)
+			return nil, fmt.Errorf("baton-tenable-vm: group membership granted but failed to get user status: %w", err)
 		}
 		err = g.connector.reEnableUserIfNeeded(ctx, user, "group membership")
 		if err != nil {
@@ -221,7 +221,7 @@ func (g *groupBuilder) Revoke(
 			zap.String(fieldUserID, userId),
 			zap.String("group_id", groupId),
 		)
-		return nil, fmt.Errorf("baton-tenable: failed to remove user from group: %w", err)
+		return nil, fmt.Errorf("baton-tenable-vm: failed to remove user from group: %w", err)
 	}
 
 	return nil, nil
