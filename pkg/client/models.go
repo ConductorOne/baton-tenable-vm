@@ -49,13 +49,6 @@ type UserRole struct {
 	RolesUUID     []string `json:"role_uuids,omitempty"`
 }
 
-type UserUpdateReqBody struct {
-	Name        string `json:"name,omitempty"`
-	Permissions int    `json:"permissions,omitempty"`
-	Email       string `json:"email,omitempty"`
-	Enabled     bool   `json:"enabled,omitempty"`
-}
-
 type UserEnabledReqBody struct {
 	Enabled bool `json:"enabled"`
 }
