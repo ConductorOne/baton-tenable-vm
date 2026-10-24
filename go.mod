@@ -3,7 +3,7 @@ module github.com/conductorone/baton-tenable-vm
 go 1.27.3
 
 require (
-	github.com/conductorone/baton-sdk v0.42.3
+	github.com/conductorone/baton-sdk v0.42.4
 	github.com/ennyjfrick/ruleguard-logfatal v0.0.2
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
