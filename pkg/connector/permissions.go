@@ -20,6 +20,16 @@ const (
 	assignedEntitlement = "assigned"
 	subjectTypeUser     = "User"
 	subjectTypeGroup    = "UserGroup"
+	subjectTypeAllUsers = "AllUsers"
+	// subjectTypeAllAdmins is the container-wide "all administrators" subject.
+	subjectTypeAllAdmins = "AllAdmins"
+
+	// adminUserPermissionLevel is the legacy permission level of the built-in
+	// Administrator role in Tenable's permission ladder: Basic 16, Standard 32,
+	// Scan Manager 40, Administrator 64. roles.go's BasicUserRole = 16 is the
+	// in-repo precedent.
+	// https://developer.tenable.com/docs/roles
+	adminUserPermissionLevel = 64
 )
 
 type permissionBuilder struct {
@@ -119,6 +129,19 @@ func (o *permissionBuilder) Grants(_ context.Context, resource *v2.Resource, _ r
 		}
 	}
 
+	// Users expanded from container-wide AllUsers/AllAdmins subjects point at
+	// the numeric user resource IDs synced from the same population. They are
+	// emitted immutable: Revoke only serves principals whose UUID literally
+	// appears in permission.Subjects, so a revocable-looking derived grant would
+	// bounce off GrantAlreadyRevoked while the user still holds access.
+	if systemUserIDs, ok := rs.GetProfileStringValue(profile, fieldSystemUserSubjectIDs); ok {
+		for _, userID := range strings.Split(systemUserIDs, profileListSeparator) {
+			userResourceID := &v2.ResourceId{ResourceType: userResourceType.Id, Resource: userID}
+			grants = append(grants, grant.NewGrant(resource, assignedEntitlement, userResourceID,
+				grant.WithAnnotation(&v2.GrantImmutable{})))
+		}
+	}
+
 	return grants, &rs.SyncOpResults{}, nil
 }
 
@@ -136,6 +159,7 @@ func parseIntoPermissionResource(
 	}
 
 	var userIDs, groupIDs []string
+	var systemUserIDs []string
 	for _, subject := range permission.Subjects {
 		switch subject.Type {
 		case subjectTypeUser:
@@ -150,6 +174,18 @@ func parseIntoPermissionResource(
 				return nil, err
 			}
 			groupIDs = append(groupIDs, groupID)
+		case subjectTypeAllUsers:
+			for _, user := range usersByUUID {
+				appendSystemUserID(&systemUserIDs, userIDs, strconv.Itoa(user.ID))
+			}
+		case subjectTypeAllAdmins:
+			for _, user := range usersByUUID {
+				if isAdminUser(user) {
+					appendSystemUserID(&systemUserIDs, userIDs, strconv.Itoa(user.ID))
+				}
+			}
+		default:
+			return nil, fmt.Errorf("baton-tenable-vm: permission %s has unsupported subject type %q", permission.UUID, subject.Type)
 		}
 	}
 	if len(userIDs) > 0 {
@@ -157,6 +193,15 @@ func parseIntoPermissionResource(
 	}
 	if len(groupIDs) > 0 {
 		profile[fieldGroupSubjectIDs] = strings.Join(groupIDs, profileListSeparator)
+	}
+	// Subject order is arbitrary in the payload, so re-dedupe against the FULL
+	// explicit user list once the loop is done: a container-wide subject that
+	// precedes the explicit User subject must not duplicate its ID either.
+	systemUserIDs = slices.DeleteFunc(systemUserIDs, func(id string) bool {
+		return slices.Contains(userIDs, id)
+	})
+	if len(systemUserIDs) > 0 {
+		profile[fieldSystemUserSubjectIDs] = strings.Join(systemUserIDs, profileListSeparator)
 	}
 
 	options := []rs.ResourceOption{
@@ -274,6 +319,31 @@ func (o *permissionBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	}
 
 	return nil, nil
+}
+
+// isAdminUser reports whether a user is an administrator in Tenable's legacy
+// permission ladder: either the legacy permission level of the built-in
+// Administrator role (64), or a role literally named "Administrator".
+//
+// Residual gap (CXH-2305, plan D4): this predicate cannot see a CUSTOM role
+// named "Administrator" that carries a different privilege mapping, nor a
+// renamed built-in Administrator role. It deliberately does not attempt to
+// widen beyond these stable identifiers.
+func isAdminUser(u client.User) bool {
+	return u.Permissions == adminUserPermissionLevel ||
+		slices.ContainsFunc(u.RbacRoles, func(r client.Role) bool {
+			return r.Name == "Administrator"
+		})
+}
+
+// appendSystemUserID appends id to *systemUserIDs unless it is already present
+// in the permission's explicit user list or already appended. This is the only
+// dedup mechanism for container-wide expansions.
+func appendSystemUserID(systemUserIDs *[]string, explicitUserIDs []string, id string) {
+	if slices.Contains(explicitUserIDs, id) || slices.Contains(*systemUserIDs, id) {
+		return
+	}
+	*systemUserIDs = append(*systemUserIDs, id)
 }
 
 func newPermissionBuilder(cli *client.TenableVMClient, con *Connector) *permissionBuilder {
