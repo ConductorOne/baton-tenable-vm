@@ -248,6 +248,9 @@ func TestIsAdminUser(t *testing.T) {
 		want bool
 	}{
 		{name: "permission level 64", user: client.User{Permissions: 64}, want: true},
+		// A renamed built-in Administrator keeps its legacy permission level,
+		// so the level disjunct still classifies it (plan T5 row).
+		{name: "renamed built-in administrator", user: client.User{Permissions: 64, RbacRoles: []client.Role{{Name: "Super Admin"}}}, want: true},
 		{name: "rbac role Administrator", user: client.User{RbacRoles: []client.Role{{Name: "Administrator"}}}, want: true},
 		{name: "scan manager 40", user: client.User{Permissions: 40, RbacRoles: []client.Role{{Name: "Scan Manager"}}}, want: false},
 		// Current behavior, documented residual gap (CXH-2305 plan D4), not a

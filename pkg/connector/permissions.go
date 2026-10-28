@@ -160,6 +160,8 @@ func parseIntoPermissionResource(
 
 	var userIDs, groupIDs []string
 	var systemUserIDs []string
+	explicitUserSeen := make(map[string]struct{})
+	systemUserSeen := make(map[string]struct{})
 	for _, subject := range permission.Subjects {
 		switch subject.Type {
 		case subjectTypeUser:
@@ -168,6 +170,7 @@ func parseIntoPermissionResource(
 				return nil, err
 			}
 			userIDs = append(userIDs, userID)
+			explicitUserSeen[userID] = struct{}{}
 		case subjectTypeGroup:
 			groupID, err := getGroupResourceId(subject.UUID.String(), groupsByUUID)
 			if err != nil {
@@ -176,12 +179,12 @@ func parseIntoPermissionResource(
 			groupIDs = append(groupIDs, groupID)
 		case subjectTypeAllUsers:
 			for _, user := range usersByUUID {
-				appendSystemUserID(&systemUserIDs, userIDs, strconv.Itoa(user.ID))
+				appendSystemUserID(&systemUserIDs, explicitUserSeen, systemUserSeen, strconv.Itoa(user.ID))
 			}
 		case subjectTypeAllAdmins:
 			for _, user := range usersByUUID {
 				if isAdminUser(user) {
-					appendSystemUserID(&systemUserIDs, userIDs, strconv.Itoa(user.ID))
+					appendSystemUserID(&systemUserIDs, explicitUserSeen, systemUserSeen, strconv.Itoa(user.ID))
 				}
 			}
 		default:
@@ -197,9 +200,17 @@ func parseIntoPermissionResource(
 	// Subject order is arbitrary in the payload, so re-dedupe against the FULL
 	// explicit user list once the loop is done: a container-wide subject that
 	// precedes the explicit User subject must not duplicate its ID either.
-	systemUserIDs = slices.DeleteFunc(systemUserIDs, func(id string) bool {
-		return slices.Contains(userIDs, id)
-	})
+	// Sort the result so the profile value is byte-stable across syncs: the
+	// expansion iterates a map, so without sorting the joined list would
+	// reshuffle on every run.
+	filtered := make([]string, 0, len(systemUserIDs))
+	for _, id := range systemUserIDs {
+		if _, dup := explicitUserSeen[id]; !dup {
+			filtered = append(filtered, id)
+		}
+	}
+	systemUserIDs = filtered
+	slices.Sort(systemUserIDs)
 	if len(systemUserIDs) > 0 {
 		profile[fieldSystemUserSubjectIDs] = strings.Join(systemUserIDs, profileListSeparator)
 	}
@@ -337,12 +348,17 @@ func isAdminUser(u client.User) bool {
 }
 
 // appendSystemUserID appends id to *systemUserIDs unless it is already present
-// in the permission's explicit user list or already appended. This is the only
-// dedup mechanism for container-wide expansions.
-func appendSystemUserID(systemUserIDs *[]string, explicitUserIDs []string, id string) {
-	if slices.Contains(explicitUserIDs, id) || slices.Contains(*systemUserIDs, id) {
+// in the permission's explicit user set or already appended. This is the only
+// dedup mechanism for container-wide expansions. Set lookups keep expansion
+// O(n) over the container population instead of O(n^2) list scans.
+func appendSystemUserID(systemUserIDs *[]string, explicitUserSeen, systemUserSeen map[string]struct{}, id string) {
+	if _, dup := explicitUserSeen[id]; dup {
 		return
 	}
+	if _, dup := systemUserSeen[id]; dup {
+		return
+	}
+	systemUserSeen[id] = struct{}{}
 	*systemUserIDs = append(*systemUserIDs, id)
 }
 
