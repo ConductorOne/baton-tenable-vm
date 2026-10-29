@@ -374,8 +374,7 @@ func TestRevoke_ContainerWideDerivedGrantIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
-	ra := annotations.Annotations(annos)
-	if !ra.Contains(&v2.GrantAlreadyRevoked{}) {
+	if !annos.Contains(&v2.GrantAlreadyRevoked{}) {
 		t.Errorf("annotations = %v, want GrantAlreadyRevoked", annos)
 	}
 	if permWrites != 0 {
