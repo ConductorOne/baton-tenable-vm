@@ -63,6 +63,16 @@ Each setup method requires you to pass in credentials generated in Tenable VM. G
     secret key.
   </Step>
 </Steps>
+
+<Warning>
+  Permission subjects of type **AllAdmins** resolve only when the connector's
+  API key holds the Administrator permission level (64), or a custom role
+  carrying users-read-with-permissions access: Tenable's users list returns
+  `permissions` and `rbac_roles` only for credentials that hold Administrator.
+  With a least-privilege key, AllAdmins subjects expand to no grants and the
+  connector logs a warning naming the affected permissions.
+</Warning>
+
 **That's it!** Next, move on to the connector configuration instructions.
 
 ## Configure the Tenable VM connector

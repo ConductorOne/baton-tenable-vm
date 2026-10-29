@@ -40,6 +40,7 @@ func mustUUID(t *testing.T, s string) uuid.UUID {
 
 const (
 	testUserUUID  = "11111111-1111-4111-8111-111111111111"
+	testUser2UUID = "22222222-2222-4222-8222-222222222222"
 	testGroupUUID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	testPermUUID  = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 )
@@ -72,7 +73,7 @@ func TestParseIntoPermissionResource_HandledSubjects(t *testing.T) {
 		},
 	}
 
-	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err != nil {
 		t.Fatalf("parseIntoPermissionResource: %v", err)
 	}
@@ -114,7 +115,7 @@ func TestParseIntoPermissionResource_ExpandsContainerWideSubjects(t *testing.T) 
 				Subjects: []client.TenableObject{{Type: tc.subjectType}},
 			}
 
-			resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+			resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 			if err != nil {
 				t.Fatalf("parseIntoPermissionResource: %v", err)
 			}
@@ -159,7 +160,7 @@ func TestParseIntoPermissionResource_MixedSubjectsKeepsHandledOnly(t *testing.T)
 		},
 	}
 
-	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err != nil {
 		t.Fatalf("parseIntoPermissionResource: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestParseIntoPermissionResource_UnknownSubjectTypeErrors(t *testing.T) {
 		},
 	}
 
-	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err == nil {
 		t.Fatalf("expected an error for unsupported subject type, got resource %v", resource)
 	}
@@ -221,7 +222,7 @@ func TestParseIntoPermissionResource_DeduplicatesSystemSubjects(t *testing.T) {
 				},
 			}
 
-			resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+			resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 			if err != nil {
 				t.Fatalf("parseIntoPermissionResource: %v", err)
 			}
@@ -234,6 +235,101 @@ func TestParseIntoPermissionResource_DeduplicatesSystemSubjects(t *testing.T) {
 			// so the system field stays absent.
 			if got, ok := rs.GetProfileStringValue(resource.GetProfile(), fieldSystemUserSubjectIDs); ok {
 				t.Errorf("%s = %q, want absent (full dedup against explicit user)", fieldSystemUserSubjectIDs, got)
+			}
+		})
+	}
+}
+
+// TestParseIntoPermissionResource_AllAdminsExpansionEmptyFlag pins the
+// credential-blindness detection (deep review, finding 1): an AllAdmins
+// subject against a NON-EMPTY user list that matches zero administrators
+// reports allAdminsExpandedEmpty — the container must carry at least one
+// administrator, so the users list was stripped of permissions/rbac_roles by
+// a least-privilege credential. An empty user list is not attributable and
+// reports false.
+func TestParseIntoPermissionResource_AllAdminsExpansionEmptyFlag(t *testing.T) {
+	perm := &client.Permission{
+		UUID:    mustUUID(t, testPermUUID),
+		Name:    "Administrators",
+		Actions: []string{"CanView"},
+		Subjects: []client.TenableObject{
+			{Type: subjectTypeAllAdmins},
+		},
+	}
+
+	// Non-admin-only population: a real container cannot look like this
+	// unless GET /users withheld permissions and rbac_roles.
+	nonAdmins := map[string]client.User{
+		testUserUUID: {ID: 1001, UUID: testUserUUID, Name: "Bob Basic", Permissions: 16},
+	}
+	resource, allAdminsExpandedEmpty, err := parseIntoPermissionResource(perm, nil, nonAdmins, map[string]string{})
+	if err != nil {
+		t.Fatalf("parseIntoPermissionResource: %v", err)
+	}
+	if !allAdminsExpandedEmpty {
+		t.Errorf("allAdminsExpandedEmpty = false, want true for a non-empty user list with zero admins")
+	}
+	if got, ok := rs.GetProfileStringValue(resource.GetProfile(), fieldSystemUserSubjectIDs); ok {
+		t.Errorf("%s = %q, want absent (zero admins expanded)", fieldSystemUserSubjectIDs, got)
+	}
+
+	// An empty user list cannot be attributed to the credential, so the flag
+	// stays down and no warn fires.
+	resource, allAdminsExpandedEmpty, err = parseIntoPermissionResource(perm, nil, map[string]client.User{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("parseIntoPermissionResource: %v", err)
+	}
+	if allAdminsExpandedEmpty {
+		t.Errorf("allAdminsExpandedEmpty = true, want false for an empty user list")
+	}
+}
+
+// TestParseIntoPermissionResource_PartialOverlap pins the mixed shape the
+// dedup table cannot express: an explicit User subject plus a container-wide
+// subject that expands to MORE users than the explicit one. Both profile
+// fields must populate — the explicit ID stays in fieldUserSubjectIDs and the
+// expansion complement lands in fieldSystemUserSubjectIDs.
+func TestParseIntoPermissionResource_PartialOverlap(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		subjectType string
+	}{
+		{name: "AllUsers", subjectType: subjectTypeAllUsers},
+		{name: "AllAdmins", subjectType: subjectTypeAllAdmins},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Bob is only reachable through the container-wide subject: he is
+			// never an explicit subject, and for AllAdmins he must still pass
+			// isAdminUser (legacy permission level 64) to be expanded.
+			usersByUUID := map[string]client.User{
+				testUserUUID:  {ID: 1001, UUID: testUserUUID, Name: "Alice Admin", Permissions: 64, RbacRoles: []client.Role{{Name: "Administrator"}}},
+				testUser2UUID: {ID: 1002, UUID: testUser2UUID, Name: "Bob Admin", Permissions: 64},
+			}
+
+			perm := &client.Permission{
+				UUID:    mustUUID(t, testPermUUID),
+				Name:    "Partial overlap",
+				Actions: []string{"CanView"},
+				Subjects: []client.TenableObject{
+					{Type: tc.subjectType},
+					{Type: subjectTypeUser, UUID: mustUUID(t, testUserUUID), Name: "Alice Admin"},
+				},
+			}
+
+			resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, map[string]string{})
+			if err != nil {
+				t.Fatalf("parseIntoPermissionResource: %v", err)
+			}
+
+			// The explicit subject stays revocable in its own field.
+			gotUsers, ok := rs.GetProfileStringValue(resource.GetProfile(), fieldUserSubjectIDs)
+			if !ok || gotUsers != "1001" {
+				t.Errorf("%s = %q (present=%v), want %q", fieldUserSubjectIDs, gotUsers, ok, "1001")
+			}
+			// Bob (ID 1002) arrives only via expansion: the complement of the
+			// explicit set, sorted, in the system field.
+			if got, ok := rs.GetProfileStringValue(resource.GetProfile(), fieldSystemUserSubjectIDs); !ok || got != "1002" {
+				t.Errorf("%s = %q (present=%v), want %q", fieldSystemUserSubjectIDs, got, ok, "1002")
 			}
 		})
 	}
@@ -287,7 +383,7 @@ func TestGrants_EmitsImmutableGrantsForSystemUserSubjectIDs(t *testing.T) {
 		Subjects: []client.TenableObject{{Type: subjectTypeAllUsers}},
 	}
 
-	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err != nil {
 		t.Fatalf("parseIntoPermissionResource: %v", err)
 	}
