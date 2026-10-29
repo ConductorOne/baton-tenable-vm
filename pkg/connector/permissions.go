@@ -238,7 +238,9 @@ func parseIntoPermissionResource(
 	// https://developer.tenable.com/reference/users-list
 	if allAdminsSeen && allAdminsMatched == 0 && len(usersByUUID) > 0 {
 		return nil, status.Errorf(codes.PermissionDenied,
-			"baton-tenable-vm: permission %s has an AllAdmins subject but no administrator could be identified: the users list carried no permissions or rbac_roles, which Tenable only returns to credentials holding Administrator [64]; grant the connector credential Administrator [64] and re-sync",
+			"baton-tenable-vm: permission %s has an AllAdmins subject but no administrator could be identified: "+
+				"the users list carried no permissions or rbac_roles, which Tenable only returns to credentials holding Administrator [64]; "+
+				"grant the connector credential Administrator [64] and re-sync",
 			permission.UUID,
 		)
 	}
