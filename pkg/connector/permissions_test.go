@@ -3,6 +3,8 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -194,7 +196,10 @@ func TestParseIntoPermissionResource_UnknownSubjectTypeErrors(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected an error for unsupported subject type, got resource %v", resource)
 	}
-	for _, want := range []string{"baton-tenable-vm:", "unsupported subject type", `"BadType"`} {
+	for _, want := range []string{"unsupported subject type", `"BadType"`} {
+		if strings.Contains(err.Error(), "baton-tenable-vm:") {
+			t.Errorf("helper error %q must be bare; List adds the connector prefix exactly once", err.Error())
+		}
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not contain %q", err.Error(), want)
 		}
@@ -472,5 +477,53 @@ func TestRevoke_ContainerWideDerivedGrantIsNoOp(t *testing.T) {
 	}
 	if permWrites != 0 {
 		t.Errorf("UpdatePermission called %d times, want 0", permWrites)
+	}
+}
+
+// TestWrapPermissionParseError pins the single-prefix rule for List's error
+// path: plain parse errors get the connector prefix + permission UUID exactly
+// once (and keep the %w chain), while status-coded errors pass through
+// unchanged so their gRPC code survives and the prefix never doubles.
+func TestWrapPermissionParseError(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantPrefix string
+		wantCode   codes.Code
+	}{
+		{
+			name:       "plain error is wrapped once",
+			err:        fmt.Errorf("unsupported subject type %q", "BadType"),
+			wantPrefix: "baton-tenable-vm: failed to build permission test-uuid: unsupported subject type \"BadType\"",
+		},
+		{
+			name:       "status-coded error passes through unchanged",
+			err:        status.Errorf(codes.PermissionDenied, "all-admins expansion denied"),
+			wantPrefix: "rpc error: code = PermissionDenied desc = all-admins expansion denied",
+			wantCode:   codes.PermissionDenied,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := wrapPermissionParseError("test-uuid", tc.err)
+			if got := wrapped.Error(); got != tc.wantPrefix {
+				t.Errorf("error = %q, want %q", got, tc.wantPrefix)
+			}
+			if strings.Count(wrapped.Error(), "baton-tenable-vm:") != strings.Count(tc.wantPrefix, "baton-tenable-vm:") {
+				t.Errorf("error %q has a doubled connector prefix", wrapped.Error())
+			}
+			if tc.wantCode != codes.OK {
+				if status.Code(wrapped) != tc.wantCode {
+					t.Errorf("code = %s, want %s (wrap must not break the gRPC code)", status.Code(wrapped), tc.wantCode)
+				}
+				if wrapped != tc.err {
+					t.Errorf("status-coded error must be returned unchanged, got %v", wrapped)
+				}
+				return
+			}
+			if errors.Unwrap(wrapped) != tc.err {
+				t.Errorf("errors.Unwrap(%q) = %v, want the original error (wrap chain broken)", wrapped.Error(), errors.Unwrap(wrapped))
+			}
+		})
 	}
 }

@@ -84,11 +84,10 @@ func (o *permissionBuilder) List(ctx context.Context, parentResourceID *v2.Resou
 			// The PermissionDenied error from the AllAdmins expansion carries
 			// its own gRPC code, so it is returned unwrapped: fmt.Errorf would
 			// break the status error's code for callers that do not unwrap.
-			// Plain parse errors (unknown user/group UUID) get the wrap so
-			// operators see which permission held the unknown UUID.
-			if sta, ok := status.FromError(err); !ok || sta.Code() == codes.Unknown {
-				err = fmt.Errorf("baton-tenable-vm: failed to build permission %s: %w", permission.UUID, err)
-			}
+			// Plain parse errors (unknown user/group UUID, unsupported subject
+			// type) get the wrap so operators see which permission held the
+			// bad value; the prefix and UUID are added exactly once.
+			err = wrapPermissionParseError(permission.UUID.String(), err)
 			return nil, &rs.SyncOpResults{Annotations: outputAnnos}, err
 		}
 		resources = append(resources, permissionResource)
@@ -205,7 +204,7 @@ func parseIntoPermissionResource(
 				}
 			}
 		default:
-			return nil, fmt.Errorf("baton-tenable-vm: permission %s has unsupported subject type %q", permission.UUID, subject.Type)
+			return nil, fmt.Errorf("unsupported subject type %q", subject.Type)
 		}
 	}
 	if len(userIDs) > 0 {
@@ -403,4 +402,16 @@ func newPermissionBuilder(cli *client.TenableVMClient, con *Connector) *permissi
 		client:    cli,
 		connector: con,
 	}
+}
+
+// wrapPermissionParseError adds the connector prefix and permission UUID to a
+// plain parse error exactly once. Status-coded errors (e.g. the PermissionDenied
+// from the AllAdmins expansion) already carry their own gRPC code, so they are
+// returned unchanged — wrapping would break the code for callers that do not
+// unwrap and double the prefix.
+func wrapPermissionParseError(permissionUUID string, err error) error {
+	if sta, ok := status.FromError(err); !ok || sta.Code() == codes.Unknown {
+		return fmt.Errorf("baton-tenable-vm: failed to build permission %s: %w", permissionUUID, err)
+	}
+	return err
 }
