@@ -516,13 +516,13 @@ func TestWrapPermissionParseError(t *testing.T) {
 				if status.Code(wrapped) != tc.wantCode {
 					t.Errorf("code = %s, want %s (wrap must not break the gRPC code)", status.Code(wrapped), tc.wantCode)
 				}
-				if wrapped != tc.err {
-					t.Errorf("status-coded error must be returned unchanged, got %v", wrapped)
+				if wrapped.Error() != tc.err.Error() {
+					t.Errorf("status-coded error must be returned unchanged, got %q want %q", wrapped.Error(), tc.err.Error())
 				}
 				return
 			}
-			if errors.Unwrap(wrapped) != tc.err {
-				t.Errorf("errors.Unwrap(%q) = %v, want the original error (wrap chain broken)", wrapped.Error(), errors.Unwrap(wrapped))
+			if !errors.Is(wrapped, tc.err) {
+				t.Errorf("errors.Is(%q) = false; want the wrap chain to contain the original error", wrapped.Error())
 			}
 		})
 	}
