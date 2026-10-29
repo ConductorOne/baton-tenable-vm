@@ -14,12 +14,24 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
 	assignedEntitlement = "assigned"
 	subjectTypeUser     = "User"
 	subjectTypeGroup    = "UserGroup"
+	subjectTypeAllUsers = "AllUsers"
+	// subjectTypeAllAdmins is the container-wide "all administrators" subject.
+	subjectTypeAllAdmins = "AllAdmins"
+
+	// adminUserPermissionLevel is the legacy permission level of the built-in
+	// Administrator role in Tenable's permission ladder: Basic 16, Standard 32,
+	// Scan Manager 40, Administrator 64. roles.go's BasicUserRole = 16 is the
+	// in-repo precedent.
+	// https://developer.tenable.com/docs/roles
+	adminUserPermissionLevel = 64
 )
 
 type permissionBuilder struct {
@@ -69,7 +81,14 @@ func (o *permissionBuilder) List(ctx context.Context, parentResourceID *v2.Resou
 	for _, permission := range permissions {
 		permissionResource, err := parseIntoPermissionResource(&permission, parentResourceID, usersByUUID, groupsByUUID)
 		if err != nil {
-			return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to build permission %s: %w", permission.UUID, err)
+			// The PermissionDenied error from the AllAdmins expansion carries
+			// its own gRPC code, so it is returned unwrapped: fmt.Errorf would
+			// break the status error's code for callers that do not unwrap.
+			// Plain parse errors (unknown user/group UUID, unsupported subject
+			// type) get the wrap so operators see which permission held the
+			// bad value; the prefix and UUID are added exactly once.
+			err = wrapPermissionParseError(permission.UUID.String(), err)
+			return nil, &rs.SyncOpResults{Annotations: outputAnnos}, err
 		}
 		resources = append(resources, permissionResource)
 	}
@@ -119,6 +138,19 @@ func (o *permissionBuilder) Grants(_ context.Context, resource *v2.Resource, _ r
 		}
 	}
 
+	// Users expanded from container-wide AllUsers/AllAdmins subjects point at
+	// the numeric user resource IDs synced from the same population. They are
+	// emitted immutable: Revoke only serves principals whose UUID literally
+	// appears in permission.Subjects, so a revocable-looking derived grant would
+	// bounce off GrantAlreadyRevoked while the user still holds access.
+	if systemUserIDs, ok := rs.GetProfileStringValue(profile, fieldSystemUserSubjectIDs); ok {
+		for _, userID := range strings.Split(systemUserIDs, profileListSeparator) {
+			userResourceID := &v2.ResourceId{ResourceType: userResourceType.Id, Resource: userID}
+			grants = append(grants, grant.NewGrant(resource, assignedEntitlement, userResourceID,
+				grant.WithAnnotation(&v2.GrantImmutable{})))
+		}
+	}
+
 	return grants, &rs.SyncOpResults{}, nil
 }
 
@@ -136,6 +168,14 @@ func parseIntoPermissionResource(
 	}
 
 	var userIDs, groupIDs []string
+	var systemUserIDs []string
+	// allAdminsMatched counts users the AllAdmins expansion accepted before
+	// dedup — the expansion's true size. It is kept separate from
+	// systemUserIDs because a coexisting AllUsers subject can fill that slice
+	// even when zero administrators matched.
+	allAdminsSeen, allAdminsMatched := false, 0
+	explicitUserSeen := make(map[string]struct{})
+	systemUserSeen := make(map[string]struct{})
 	for _, subject := range permission.Subjects {
 		switch subject.Type {
 		case subjectTypeUser:
@@ -144,12 +184,27 @@ func parseIntoPermissionResource(
 				return nil, err
 			}
 			userIDs = append(userIDs, userID)
+			explicitUserSeen[userID] = struct{}{}
 		case subjectTypeGroup:
 			groupID, err := getGroupResourceId(subject.UUID.String(), groupsByUUID)
 			if err != nil {
 				return nil, err
 			}
 			groupIDs = append(groupIDs, groupID)
+		case subjectTypeAllUsers:
+			for _, user := range usersByUUID {
+				appendSystemUserID(&systemUserIDs, explicitUserSeen, systemUserSeen, strconv.Itoa(user.ID))
+			}
+		case subjectTypeAllAdmins:
+			allAdminsSeen = true
+			for _, user := range usersByUUID {
+				if isAdminUser(user) {
+					allAdminsMatched++
+					appendSystemUserID(&systemUserIDs, explicitUserSeen, systemUserSeen, strconv.Itoa(user.ID))
+				}
+			}
+		default:
+			return nil, fmt.Errorf("unsupported subject type %q", subject.Type)
 		}
 	}
 	if len(userIDs) > 0 {
@@ -157,6 +212,40 @@ func parseIntoPermissionResource(
 	}
 	if len(groupIDs) > 0 {
 		profile[fieldGroupSubjectIDs] = strings.Join(groupIDs, profileListSeparator)
+	}
+	// Subject order is arbitrary in the payload, so re-dedupe against the FULL
+	// explicit user list once the loop is done: a container-wide subject that
+	// precedes the explicit User subject must not duplicate its ID either.
+	// Sort the result so the profile value is byte-stable across syncs: the
+	// expansion iterates a map, so without sorting the joined list would
+	// reshuffle on every run.
+	filtered := make([]string, 0, len(systemUserIDs))
+	for _, id := range systemUserIDs {
+		if _, dup := explicitUserSeen[id]; !dup {
+			filtered = append(filtered, id)
+		}
+	}
+	systemUserIDs = filtered
+	slices.Sort(systemUserIDs)
+	if len(systemUserIDs) > 0 {
+		profile[fieldSystemUserSubjectIDs] = strings.Join(systemUserIDs, profileListSeparator)
+	}
+
+	// An AllAdmins subject against a non-empty user list that matched zero
+	// administrators is anomalous: every container carries at least one
+	// administrator, so the cause is a least-privilege connector credential —
+	// Tenable returns permissions and rbac_roles in GET /users only to
+	// credentials holding Administrator [64], leaving isAdminUser false for
+	// everyone. Fail the sync with PermissionDenied so prior AllAdmins grants
+	// are kept rather than silently revoked by an empty re-emit.
+	// https://developer.tenable.com/reference/users-list
+	if allAdminsSeen && allAdminsMatched == 0 && len(usersByUUID) > 0 {
+		return nil, status.Errorf(codes.PermissionDenied,
+			"baton-tenable-vm: permission %s has an AllAdmins subject but no administrator could be identified: "+
+				"the users list carried no permissions or rbac_roles, which Tenable only returns to credentials holding Administrator [64]; "+
+				"grant the connector credential Administrator [64] and re-sync",
+			permission.UUID,
+		)
 	}
 
 	options := []rs.ResourceOption{
@@ -276,9 +365,53 @@ func (o *permissionBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	return nil, nil
 }
 
+// isAdminUser reports whether a user is an administrator in Tenable's legacy
+// permission ladder: either the legacy permission level of the built-in
+// Administrator role (64), or a role literally named "Administrator".
+//
+// Known gaps (CXH-2305, plan D4), deliberately not widened beyond these stable
+// identifiers: (a) OVER-COUNT — a custom role named "Administrator" matches the
+// name check even if its privileges are weaker, so such a user is counted as an
+// admin; (b) UNDER-COUNT — an admin-equivalent custom role with a different
+// name and no legacy permission level 64 is missed. A renamed built-in
+// Administrator role is still caught by the level-64 half for users carrying it.
+func isAdminUser(u client.User) bool {
+	return u.Permissions == adminUserPermissionLevel ||
+		slices.ContainsFunc(u.RbacRoles, func(r client.Role) bool {
+			return r.Name == "Administrator"
+		})
+}
+
+// appendSystemUserID appends id to *systemUserIDs unless it is already present
+// in the permission's explicit user set or already appended. This is the only
+// dedup mechanism for container-wide expansions. Set lookups keep expansion
+// O(n) over the container population instead of O(n^2) list scans.
+func appendSystemUserID(systemUserIDs *[]string, explicitUserSeen, systemUserSeen map[string]struct{}, id string) {
+	if _, dup := explicitUserSeen[id]; dup {
+		return
+	}
+	if _, dup := systemUserSeen[id]; dup {
+		return
+	}
+	systemUserSeen[id] = struct{}{}
+	*systemUserIDs = append(*systemUserIDs, id)
+}
+
 func newPermissionBuilder(cli *client.TenableVMClient, con *Connector) *permissionBuilder {
 	return &permissionBuilder{
 		client:    cli,
 		connector: con,
 	}
+}
+
+// wrapPermissionParseError adds the connector prefix and permission UUID to a
+// plain parse error exactly once. Status-coded errors (e.g. the PermissionDenied
+// from the AllAdmins expansion) already carry their own gRPC code, so they are
+// returned unchanged — wrapping would break the code for callers that do not
+// unwrap and double the prefix.
+func wrapPermissionParseError(permissionUUID string, err error) error {
+	if sta, ok := status.FromError(err); !ok || sta.Code() == codes.Unknown {
+		return fmt.Errorf("baton-tenable-vm: failed to build permission %s: %w", permissionUUID, err)
+	}
+	return err
 }
