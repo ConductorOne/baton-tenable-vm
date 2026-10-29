@@ -336,10 +336,12 @@ func (o *permissionBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annota
 // permission ladder: either the legacy permission level of the built-in
 // Administrator role (64), or a role literally named "Administrator".
 //
-// Residual gap (CXH-2305, plan D4): this predicate cannot see a CUSTOM role
-// named "Administrator" that carries a different privilege mapping, nor a
-// renamed built-in Administrator role. It deliberately does not attempt to
-// widen beyond these stable identifiers.
+// Known gaps (CXH-2305, plan D4), deliberately not widened beyond these stable
+// identifiers: (a) OVER-COUNT — a custom role named "Administrator" matches the
+// name check even if its privileges are weaker, so such a user is counted as an
+// admin; (b) UNDER-COUNT — an admin-equivalent custom role with a different
+// name and no legacy permission level 64 is missed. A renamed built-in
+// Administrator role is still caught by the level-64 half for users carrying it.
 func isAdminUser(u client.User) bool {
 	return u.Permissions == adminUserPermissionLevel ||
 		slices.ContainsFunc(u.RbacRoles, func(r client.Role) bool {
