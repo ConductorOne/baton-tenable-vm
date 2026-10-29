@@ -14,8 +14,8 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 	"github.com/google/uuid"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -78,30 +78,16 @@ func (o *permissionBuilder) List(ctx context.Context, parentResourceID *v2.Resou
 	}
 
 	var resources []*v2.Resource
-	// AllAdmins subjects whose expansion came back empty (see
-	// parseIntoPermissionResource): the cause is credential-level, so all
-	// affected permissions in one List share it and are reported together in
-	// a single warn instead of one line per permission.
-	var emptyAdminPermNames []string
 	for _, permission := range permissions {
-		permissionResource, allAdminsExpandedEmpty, err := parseIntoPermissionResource(&permission, parentResourceID, usersByUUID, groupsByUUID)
+		permissionResource, err := parseIntoPermissionResource(&permission, parentResourceID, usersByUUID, groupsByUUID)
 		if err != nil {
-			return nil, &rs.SyncOpResults{Annotations: outputAnnos}, fmt.Errorf("baton-tenable-vm: failed to build permission %s: %w", permission.UUID, err)
-		}
-		if allAdminsExpandedEmpty {
-			emptyAdminPermNames = append(emptyAdminPermNames, permission.Name)
+			// The parse error carries its own gRPC code (PermissionDenied for
+			// an empty AllAdmins expansion), so it is returned unwrapped:
+			// fmt.Errorf would break the status error's code for callers that
+			// do not unwrap.
+			return nil, &rs.SyncOpResults{Annotations: outputAnnos}, err
 		}
 		resources = append(resources, permissionResource)
-	}
-	if len(emptyAdminPermNames) > 0 {
-		// One-shot per List: the permission builder is top-level, so this warn
-		// fires once per sync and needs no sampling. Nothing is returned here,
-		// so logging does not double-log a returned error.
-		// https://developer.tenable.com/reference/users-list
-		l := ctxzap.Extract(ctx)
-		l.Warn("baton-tenable-vm: AllAdmins permission subjects expanded to zero grants; the users list carried no permissions or rbac_roles, likely because the connector credential lacks the Administrator permission level (64). AllAdmins grants require an API key with Administrator [64] or a role carrying users-read-with-permissions",
-			zap.Strings("permissions", emptyAdminPermNames),
-		)
 	}
 	return resources, &rs.SyncOpResults{Annotations: outputAnnos}, nil
 }
@@ -170,7 +156,7 @@ func parseIntoPermissionResource(
 	parentResourceID *v2.ResourceId,
 	usersByUUID map[string]client.User,
 	groupsByUUID map[string]string,
-) (*v2.Resource, bool, error) {
+) (*v2.Resource, error) {
 	actionList := strings.Join(permission.Actions, " ")
 	profile := map[string]any{
 		fieldName: permission.Name,
@@ -192,14 +178,14 @@ func parseIntoPermissionResource(
 		case subjectTypeUser:
 			userID, err := getUserResourceId(subject.UUID.String(), usersByUUID)
 			if err != nil {
-				return nil, false, err
+				return nil, err
 			}
 			userIDs = append(userIDs, userID)
 			explicitUserSeen[userID] = struct{}{}
 		case subjectTypeGroup:
 			groupID, err := getGroupResourceId(subject.UUID.String(), groupsByUUID)
 			if err != nil {
-				return nil, false, err
+				return nil, err
 			}
 			groupIDs = append(groupIDs, groupID)
 		case subjectTypeAllUsers:
@@ -215,7 +201,7 @@ func parseIntoPermissionResource(
 				}
 			}
 		default:
-			return nil, false, fmt.Errorf("baton-tenable-vm: permission %s has unsupported subject type %q", permission.UUID, subject.Type)
+			return nil, fmt.Errorf("baton-tenable-vm: permission %s has unsupported subject type %q", permission.UUID, subject.Type)
 		}
 	}
 	if len(userIDs) > 0 {
@@ -244,14 +230,18 @@ func parseIntoPermissionResource(
 
 	// An AllAdmins subject against a non-empty user list that matched zero
 	// administrators is anomalous: every container carries at least one
-	// administrator, so the likely cause is a least-privilege connector
-	// credential — Tenable returns permissions and rbac_roles in GET /users
-	// only for credentials holding Administrator [64], leaving isAdminUser
-	// false for everyone. Reported to List() so the sync stays green (a
-	// least-privilege credential must not fail it) while the expansion loss
-	// is surfaced in one aggregated warn.
+	// administrator, so the cause is a least-privilege connector credential —
+	// Tenable returns permissions and rbac_roles in GET /users only to
+	// credentials holding Administrator [64], leaving isAdminUser false for
+	// everyone. Fail the sync with PermissionDenied so prior AllAdmins grants
+	// are kept rather than silently revoked by an empty re-emit.
 	// https://developer.tenable.com/reference/users-list
-	allAdminsExpandedEmpty := allAdminsSeen && allAdminsMatched == 0 && len(usersByUUID) > 0
+	if allAdminsSeen && allAdminsMatched == 0 && len(usersByUUID) > 0 {
+		return nil, status.Errorf(codes.PermissionDenied,
+			"baton-tenable-vm: permission %s has an AllAdmins subject but no administrator could be identified: the users list carried no permissions or rbac_roles, which Tenable only returns to credentials holding Administrator [64]; grant the connector credential Administrator [64] and re-sync",
+			permission.UUID,
+		)
+	}
 
 	options := []rs.ResourceOption{
 		rs.WithResourceProfile(profile),
@@ -269,10 +259,10 @@ func parseIntoPermissionResource(
 	)
 
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
-	return resource, allAdminsExpandedEmpty, nil
+	return resource, nil
 }
 
 func (o *permissionBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (

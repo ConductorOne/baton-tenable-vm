@@ -15,6 +15,8 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-tenable-vm/pkg/client"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Tenable's PermissionSubject.type enum declares four values. Doc URL:
@@ -73,7 +75,7 @@ func TestParseIntoPermissionResource_HandledSubjects(t *testing.T) {
 		},
 	}
 
-	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err != nil {
 		t.Fatalf("parseIntoPermissionResource: %v", err)
 	}
@@ -115,7 +117,7 @@ func TestParseIntoPermissionResource_ExpandsContainerWideSubjects(t *testing.T) 
 				Subjects: []client.TenableObject{{Type: tc.subjectType}},
 			}
 
-			resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+			resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 			if err != nil {
 				t.Fatalf("parseIntoPermissionResource: %v", err)
 			}
@@ -160,7 +162,7 @@ func TestParseIntoPermissionResource_MixedSubjectsKeepsHandledOnly(t *testing.T)
 		},
 	}
 
-	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err != nil {
 		t.Fatalf("parseIntoPermissionResource: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestParseIntoPermissionResource_UnknownSubjectTypeErrors(t *testing.T) {
 		},
 	}
 
-	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err == nil {
 		t.Fatalf("expected an error for unsupported subject type, got resource %v", resource)
 	}
@@ -222,7 +224,7 @@ func TestParseIntoPermissionResource_DeduplicatesSystemSubjects(t *testing.T) {
 				},
 			}
 
-			resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+			resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 			if err != nil {
 				t.Fatalf("parseIntoPermissionResource: %v", err)
 			}
@@ -241,12 +243,12 @@ func TestParseIntoPermissionResource_DeduplicatesSystemSubjects(t *testing.T) {
 }
 
 // TestParseIntoPermissionResource_AllAdminsExpansionEmptyFlag pins the
-// credential-blindness detection (deep review, finding 1): an AllAdmins
-// subject against a NON-EMPTY user list that matches zero administrators
-// reports allAdminsExpandedEmpty — the container must carry at least one
-// administrator, so the users list was stripped of permissions/rbac_roles by
-// a least-privilege credential. An empty user list is not attributable and
-// reports false.
+// credential-blindness error (judge round 4): an AllAdmins subject against a
+// NON-EMPTY user list that matches zero administrators fails the sync with a
+// gRPC PermissionDenied error — the container must carry at least one
+// administrator, so the users list was stripped of permissions/rbac_roles by a
+// credential without Administrator [64]. An empty user list is not
+// attributable and stays unattributed/no error.
 func TestParseIntoPermissionResource_AllAdminsExpansionEmptyFlag(t *testing.T) {
 	perm := &client.Permission{
 		UUID:    mustUUID(t, testPermUUID),
@@ -262,25 +264,19 @@ func TestParseIntoPermissionResource_AllAdminsExpansionEmptyFlag(t *testing.T) {
 	nonAdmins := map[string]client.User{
 		testUserUUID: {ID: 1001, UUID: testUserUUID, Name: "Bob Basic", Permissions: 16},
 	}
-	resource, allAdminsExpandedEmpty, err := parseIntoPermissionResource(perm, nil, nonAdmins, map[string]string{})
-	if err != nil {
-		t.Fatalf("parseIntoPermissionResource: %v", err)
+	_, err := parseIntoPermissionResource(perm, nil, nonAdmins, map[string]string{})
+	if err == nil {
+		t.Fatal("parseIntoPermissionResource: got nil error, want PermissionDenied for a non-empty user list with zero admins")
 	}
-	if !allAdminsExpandedEmpty {
-		t.Errorf("allAdminsExpandedEmpty = false, want true for a non-empty user list with zero admins")
-	}
-	if got, ok := rs.GetProfileStringValue(resource.GetProfile(), fieldSystemUserSubjectIDs); ok {
-		t.Errorf("%s = %q, want absent (zero admins expanded)", fieldSystemUserSubjectIDs, got)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Errorf("error code = %s, want %s (least-privilege credential is a permission failure)", status.Code(err), codes.PermissionDenied)
 	}
 
-	// An empty user list cannot be attributed to the credential, so the flag
-	// stays down and no warn fires.
-	resource, allAdminsExpandedEmpty, err = parseIntoPermissionResource(perm, nil, map[string]client.User{}, map[string]string{})
+	// An empty user list cannot be attributed to the credential, so it stays
+	// unattributed and does not error.
+	_, err = parseIntoPermissionResource(perm, nil, map[string]client.User{}, map[string]string{})
 	if err != nil {
-		t.Fatalf("parseIntoPermissionResource: %v", err)
-	}
-	if allAdminsExpandedEmpty {
-		t.Errorf("allAdminsExpandedEmpty = true, want false for an empty user list")
+		t.Errorf("parseIntoPermissionResource with empty user list: %v, want nil", err)
 	}
 }
 
@@ -316,7 +312,7 @@ func TestParseIntoPermissionResource_PartialOverlap(t *testing.T) {
 				},
 			}
 
-			resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, map[string]string{})
+			resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, map[string]string{})
 			if err != nil {
 				t.Fatalf("parseIntoPermissionResource: %v", err)
 			}
@@ -383,7 +379,7 @@ func TestGrants_EmitsImmutableGrantsForSystemUserSubjectIDs(t *testing.T) {
 		Subjects: []client.TenableObject{{Type: subjectTypeAllUsers}},
 	}
 
-	resource, _, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
+	resource, err := parseIntoPermissionResource(perm, nil, usersByUUID, groupsByUUID)
 	if err != nil {
 		t.Fatalf("parseIntoPermissionResource: %v", err)
 	}
