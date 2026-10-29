@@ -81,10 +81,14 @@ func (o *permissionBuilder) List(ctx context.Context, parentResourceID *v2.Resou
 	for _, permission := range permissions {
 		permissionResource, err := parseIntoPermissionResource(&permission, parentResourceID, usersByUUID, groupsByUUID)
 		if err != nil {
-			// The parse error carries its own gRPC code (PermissionDenied for
-			// an empty AllAdmins expansion), so it is returned unwrapped:
-			// fmt.Errorf would break the status error's code for callers that
-			// do not unwrap.
+			// The PermissionDenied error from the AllAdmins expansion carries
+			// its own gRPC code, so it is returned unwrapped: fmt.Errorf would
+			// break the status error's code for callers that do not unwrap.
+			// Plain parse errors (unknown user/group UUID) get the wrap so
+			// operators see which permission held the unknown UUID.
+			if sta, ok := status.FromError(err); !ok || sta.Code() == codes.Unknown {
+				err = fmt.Errorf("baton-tenable-vm: failed to build permission %s: %w", permission.UUID, err)
+			}
 			return nil, &rs.SyncOpResults{Annotations: outputAnnos}, err
 		}
 		resources = append(resources, permissionResource)

@@ -167,8 +167,9 @@ func TestParseIntoPermissionResource_MixedSubjectsKeepsHandledOnly(t *testing.T)
 		t.Fatalf("parseIntoPermissionResource: %v", err)
 	}
 
-	// The handled subject still produces its ID; the unhandled one contributes
-	// nothing. If this ever returns more than the single user, CXH-2305 moved.
+	// The fixture's only user is both the explicit subject and the sole
+	// AllAdmins expansion member, so dedup collapses them into the single ID;
+	// expansion itself is covered by its own tests.
 	gotUsers, ok := rs.GetProfileStringValue(resource.GetProfile(), fieldUserSubjectIDs)
 	if !ok || gotUsers != "1001" {
 		t.Errorf("%s = %q (present=%v), want %q", fieldUserSubjectIDs, gotUsers, ok, "1001")
