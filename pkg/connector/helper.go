@@ -24,7 +24,10 @@ const (
 	fieldRoleUUIDs       = "role_uuids"
 	fieldUserSubjectIDs  = "user_subject_ids"
 	fieldGroupSubjectIDs = "group_subject_ids"
-	profileListSeparator = ","
+	// fieldSystemUserSubjectIDs holds resource IDs of users expanded from the
+	// container-wide AllUsers/AllAdmins permission subjects (CXH-2305).
+	fieldSystemUserSubjectIDs = "system_user_subject_ids"
+	profileListSeparator      = ","
 )
 
 func isPasswordValid(password string) bool {
